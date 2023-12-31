@@ -1,0 +1,10 @@
+[package]
+name = "templr"
+version = "0.1.0"
+license = "Apache-2.0"
+workspace = ".."
+readme = "../README.md"
+edition = "2021"
+
+[dependencies]
+templr_macros = { path = "../templr_macros" }
