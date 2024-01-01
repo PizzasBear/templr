@@ -20,7 +20,7 @@ impl Parse for OpenTag {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         Ok(Self {
             lt: input.parse()?,
-            name: input.parse()?,
+            name: Name::parse_tag(input)?,
             attrs: {
                 let mut attrs = vec![];
                 while !input.peek(Token![/]) && !input.peek(Token![>]) {
@@ -59,7 +59,7 @@ impl Parse for CloseTag {
         Ok(Self {
             lt: input.parse()?,
             slash: input.parse()?,
-            name: input.parse()?,
+            name: Name::parse_tag(input)?,
             gt: input.parse()?,
         })
     }
@@ -91,7 +91,6 @@ impl Parse for Element {
                 close: None,
             }),
             None => Ok(Self {
-                open,
                 nodes: {
                     let mut nodes = vec![];
                     while !input.peek(Token![<]) || !input.peek2(Token![/]) {
@@ -99,7 +98,18 @@ impl Parse for Element {
                     }
                     nodes
                 },
-                close: Some(input.parse()?),
+                close: {
+                    let close: CloseTag = input.parse()?;
+                    let open_name = open.name.to_string();
+                    if close.name.to_string() != open_name {
+                        return Err(syn::Error::new_spanned(
+                            close.name,
+                            format!("Mismatched closing tag, expected: {open_name}"),
+                        ));
+                    }
+                    Some(close)
+                },
+                open,
             }),
         }
     }

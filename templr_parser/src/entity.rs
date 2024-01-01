@@ -1,3 +1,5 @@
+use core::fmt;
+
 use proc_macro2::TokenStream;
 use quote::ToTokens;
 use syn::{
@@ -32,6 +34,12 @@ impl ToTokens for NamedEntity {
     }
 }
 
+impl fmt::Display for NamedEntity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "&{};", self.ident)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct DecimalEntity {
     pub amp: Token![&],
@@ -56,6 +64,12 @@ impl ToTokens for DecimalEntity {
         self.pound.to_tokens(tokens);
         self.decimal.to_tokens(tokens);
         self.semicolon.to_tokens(tokens);
+    }
+}
+
+impl fmt::Display for DecimalEntity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "&#{};", self.decimal.index)
     }
 }
 
@@ -94,6 +108,12 @@ impl ToTokens for HexEntity {
     }
 }
 
+impl fmt::Display for HexEntity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "&#{};", self.hex)
+    }
+}
+
 #[derive(Debug, Clone)]
 pub enum Entity {
     Named(NamedEntity),
@@ -121,6 +141,16 @@ impl ToTokens for Entity {
             Self::Named(slf) => slf.to_tokens(tokens),
             Self::Decimal(slf) => slf.to_tokens(tokens),
             Self::Hex(slf) => slf.to_tokens(tokens),
+        }
+    }
+}
+
+impl fmt::Display for Entity {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Named(slf) => fmt::Display::fmt(slf, f),
+            Self::Decimal(slf) => fmt::Display::fmt(slf, f),
+            Self::Hex(slf) => fmt::Display::fmt(slf, f),
         }
     }
 }

@@ -1,4 +1,4 @@
-use proc_macro2::TokenStream;
+use proc_macro2::{extra::DelimSpan, TokenStream};
 use quote::ToTokens;
 use syn::{
     braced,
@@ -8,16 +8,21 @@ use syn::{
 };
 
 pub mod attrs;
+pub mod call;
+pub mod doctype;
 pub mod element;
 pub mod entity;
+pub mod for_stmt;
+pub mod if_stmt;
+pub mod let_stmt;
+pub mod match_stmt;
 pub mod name;
 pub mod raw_text;
 
-pub use attrs::Attr;
-pub use element::Element;
-pub use entity::Entity;
-pub use name::Name;
-pub use raw_text::RawText;
+pub use {
+    attrs::Attr, call::Call, doctype::Doctype, element::Element, entity::Entity, for_stmt::For,
+    if_stmt::If, let_stmt::Let, match_stmt::Match, name::Name, raw_text::RawText,
+};
 
 macro_rules! ignore {
     ($($_:tt)*) => {};
@@ -25,6 +30,7 @@ macro_rules! ignore {
 
 ignore! {
     <hr
+        @click="console.log('works!')"
         style="padding: 10px"
         #if true {
             class="itIsTrue"
@@ -39,6 +45,13 @@ ignore! {
             <asd>
         }
     }
+    #wrapChildren("hello") {
+        <div>Inserted from the top</div>
+    }
+
+    #wrapChildren("hello", templ! {
+        <div>Inserted from the top</div>
+    })
 }
 
 /// Parses the body of a hash statement, consumes the entirery of its input
@@ -51,247 +64,86 @@ fn parse_to_vec<T: Parse>(input: ParseStream) -> syn::Result<Vec<T>> {
 }
 
 #[derive(Debug, Clone)]
-pub struct ElseIfBranch<T> {
-    pub else_token: token::Else,
-    pub if_token: token::If,
-    pub cond: Box<syn::Expr>,
-    pub brace: Brace,
-    pub body: Vec<T>,
-}
-
-impl<T: ToTokens> ToTokens for ElseIfBranch<T> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.else_token.to_tokens(tokens);
-        self.if_token.to_tokens(tokens);
-        self.cond.to_tokens(tokens);
-        self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
-        });
-    }
-}
-
-impl<T: Parse> Parse for ElseIfBranch<T> {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let content;
-        Ok(Self {
-            else_token: input.parse()?,
-            if_token: input.parse()?,
-            cond: Box::new(syn::Expr::parse_without_eager_brace(input)?),
-            brace: braced!(content in input),
-            body: parse_to_vec(&content)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ElseBranch<T> {
-    pub else_token: token::Else,
-    pub brace: Brace,
-    pub body: Vec<T>,
-}
-
-impl<T: ToTokens> ToTokens for ElseBranch<T> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.else_token.to_tokens(tokens);
-        self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
-        });
-    }
-}
-
-impl<T: Parse> Parse for ElseBranch<T> {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let content;
-        Ok(Self {
-            else_token: input.parse()?,
-            brace: braced!(content in input),
-            body: parse_to_vec(&content)?,
-        })
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct If<T> {
+pub struct PoundBlock<T> {
     pub pound: token::Pound,
-    pub if_token: token::If,
-    pub cond: Box<syn::Expr>,
     pub brace: Brace,
     pub body: Vec<T>,
-    pub else_if_branches: Vec<ElseIfBranch<T>>,
-    pub else_branch: Option<ElseBranch<T>>,
 }
 
-impl<T: Parse> Parse for If<T> {
+impl<T: Parse> Parse for PoundBlock<T> {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let content;
         Ok(Self {
             pound: input.parse()?,
-            if_token: input.parse()?,
-            cond: Box::new(syn::Expr::parse_without_eager_brace(input)?),
             brace: braced!(content in input),
             body: parse_to_vec(&content)?,
-            else_if_branches: {
-                let mut branches = vec![];
-                while input.peek(Token![else]) && input.peek2(Token![if]) {
-                    branches.push(input.parse()?);
-                }
-                branches
-            },
-            else_branch: match input.peek(Token![else]) {
-                true => Some(input.parse()?),
-                false => None,
-            },
         })
     }
 }
 
-impl<T: ToTokens> ToTokens for If<T> {
+impl<T: ToTokens> ToTokens for PoundBlock<T> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.pound.to_tokens(tokens);
-        self.if_token.to_tokens(tokens);
-        self.cond.to_tokens(tokens);
         self.brace.surround(tokens, |tokens| {
             for item in &self.body {
                 item.to_tokens(tokens)
             }
         });
-        for branch in &self.else_if_branches {
-            branch.to_tokens(tokens);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub enum Block {
+    Valid(syn::Block),
+    Invalid { brace: Brace, body: TokenStream },
+}
+
+impl Block {
+    pub fn brace_span(&self) -> DelimSpan {
+        match self {
+            Block::Valid(block) => block.brace_token.span,
+            Block::Invalid { brace, .. } => brace.span,
         }
-        self.else_branch.to_tokens(tokens);
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct MatchArm<T> {
-    pub pat: Box<syn::Pat>,
-    pub guard: Option<(token::If, Box<syn::Expr>)>,
-    pub fat_arrow: token::FatArrow,
-    pub brace: Brace,
-    pub body: Vec<T>,
-}
-
-impl<T: Parse> Parse for MatchArm<T> {
+impl Parse for Block {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let content;
-        Ok(Self {
-            pat: Box::new(syn::Pat::parse_multi_with_leading_vert(input)?),
-            guard: match Option::<Token![if]>::parse(input)? {
-                Some(tk) => Some((tk, input.parse()?)),
-                None => None,
-            },
-            fat_arrow: input.parse()?,
-            brace: braced!(content in input),
-            body: parse_to_vec(&content)?,
-        })
-    }
-}
-
-impl<T: ToTokens> ToTokens for MatchArm<T> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.pat.to_tokens(tokens);
-        if let Some((if_token, expr)) = self.guard {
-            if_token.to_tokens(tokens);
-            expr.to_tokens(tokens);
+        match input.parse() {
+            Ok(block) => Ok(Self::Valid(block)),
+            Err(_) => Ok(Self::Invalid {
+                brace: braced!(content in input),
+                body: content.parse()?,
+            }),
         }
-        self.fat_arrow.to_tokens(tokens);
-        self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
-        });
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Match<T> {
-    pub pound: token::Pound,
-    pub match_token: token::Match,
-    pub expr: Box<syn::Expr>,
-    pub brace: Brace,
-    pub arms: Vec<MatchArm<T>>,
-}
-
-impl<T: Parse> Parse for Match<T> {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let content;
-        Ok(Self {
-            pound: input.parse()?,
-            match_token: input.parse()?,
-            expr: Box::new(syn::Expr::parse_without_eager_brace(input)?),
-            brace: braced!(content in input),
-            arms: parse_to_vec(&content)?,
-        })
-    }
-}
-
-impl<T: ToTokens> ToTokens for Match<T> {
+impl ToTokens for Block {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.pound.to_tokens(tokens);
-        self.match_token.to_tokens(tokens);
-        self.expr.to_tokens(tokens);
-        self.brace.surround(tokens, |tokens| {
-            for arm in &self.arms {
-                arm.to_tokens(tokens)
+        match self {
+            Self::Valid(block) => block.to_tokens(tokens),
+            Self::Invalid { brace, body } => {
+                brace.surround(tokens, |tokens| body.to_tokens(tokens))
             }
-        });
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct For<T> {
-    pub pound: token::Pound,
-    pub for_token: token::For,
-    pub pat: Box<syn::Pat>,
-    pub in_token: token::In,
-    pub expr: Box<syn::Expr>,
-    pub brace: Brace,
-    pub body: Vec<T>,
-}
-
-impl<T: Parse> Parse for For<T> {
-    fn parse(input: ParseStream) -> syn::Result<Self> {
-        let content;
-        Ok(Self {
-            pound: input.parse()?,
-            for_token: input.parse()?,
-            pat: Box::new(syn::Pat::parse_multi_with_leading_vert(input)?),
-            in_token: input.parse()?,
-            expr: Box::new(syn::Expr::parse_without_eager_brace(input)?),
-            brace: braced!(content in input),
-            body: parse_to_vec(&content)?,
-        })
-    }
-}
-
-impl<T: ToTokens> ToTokens for For<T> {
-    fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.pound.to_tokens(tokens);
-        self.for_token.to_tokens(tokens);
-        self.pat.to_tokens(tokens);
-        self.in_token.to_tokens(tokens);
-        self.expr.to_tokens(tokens);
-        self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
-        });
+        }
     }
 }
 
 #[derive(Debug, Clone)]
 pub enum Node {
     Entity(Entity),
+    Doctype(Doctype),
     Element(Element),
     RawText(RawText),
-    Expr(syn::Block),
+    Expr(Block),
     If(If<Self>),
     Match(Match<Self>),
     For(For<Self>),
+    Block(PoundBlock<Self>),
+    Let(Let),
+    Call(Call),
 }
 
 impl Parse for Node {
@@ -299,22 +151,26 @@ impl Parse for Node {
         if input.peek(Token![&]) {
             Ok(Self::Entity(input.parse()?))
         } else if input.peek(Token![<]) {
-            Ok(Self::Element(input.parse()?))
+            if input.peek2(Token![!]) {
+                Ok(Self::Doctype(input.parse()?))
+            } else {
+                Ok(Self::Element(input.parse()?))
+            }
         } else if input.peek(Brace) {
             Ok(Self::Expr(input.parse()?))
         } else if input.peek(Token![#]) {
-            let fork = input.fork();
-            let _: Token![#] = fork.parse()?;
-
-            let lookahead1 = fork.lookahead1();
-            if lookahead1.peek(Token![if]) {
+            if input.peek2(Token![if]) {
                 Ok(Self::If(input.parse()?))
-            } else if lookahead1.peek(Token![match]) {
+            } else if input.peek2(Token![match]) {
                 Ok(Self::Match(input.parse()?))
-            } else if lookahead1.peek(Token![for]) {
+            } else if input.peek2(Token![for]) {
                 Ok(Self::For(input.parse()?))
+            } else if input.peek2(Token![let]) {
+                Ok(Self::Let(input.parse()?))
+            } else if input.peek2(Brace) {
+                Ok(Self::Block(input.parse()?))
             } else {
-                Err(lookahead1.error())
+                Ok(Self::Call(input.parse()?))
             }
         } else {
             Ok(Self::RawText(input.parse()?))
@@ -326,33 +182,163 @@ impl ToTokens for Node {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
             Self::Entity(slf) => slf.to_tokens(tokens),
+            Self::Doctype(slf) => slf.to_tokens(tokens),
             Self::Element(slf) => slf.to_tokens(tokens),
             Self::RawText(slf) => slf.to_tokens(tokens),
             Self::Expr(slf) => slf.to_tokens(tokens),
             Self::If(slf) => slf.to_tokens(tokens),
             Self::Match(slf) => slf.to_tokens(tokens),
             Self::For(slf) => slf.to_tokens(tokens),
+            Self::Block(slf) => slf.to_tokens(tokens),
+            Self::Let(slf) => slf.to_tokens(tokens),
+            Self::Call(slf) => slf.to_tokens(tokens),
         }
+    }
+}
+
+mod kw {
+    syn::custom_keyword!(context);
+    syn::custom_keyword!(children);
+}
+
+#[derive(Debug, Clone)]
+pub struct UseContext {
+    pub pound: Token![#],
+    pub use_token: Token![use],
+    pub context: kw::context,
+    pub as_pat: Option<(Token![as], Box<syn::Pat>)>,
+    pub colon_ty: Option<(Token![:], Box<syn::Type>)>,
+    pub semi: Token![;],
+}
+
+impl Parse for UseContext {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        Ok(Self {
+            pound: input.parse()?,
+            use_token: input.parse()?,
+            context: input.parse()?,
+            as_pat: {
+                let lookahead1 = input.lookahead1();
+                match lookahead1.peek(Token![as]) {
+                    true => Some((input.parse()?, Box::new(syn::Pat::parse_single(input)?))),
+                    false if lookahead1.peek(Token![:]) || lookahead1.peek(Token![;]) => None,
+                    false => return Err(lookahead1.error()),
+                }
+            },
+            colon_ty: {
+                let lookahead1 = input.lookahead1();
+                match lookahead1.peek(Token![:]) {
+                    true => Some((input.parse()?, Box::new(input.parse()?))),
+                    false if lookahead1.peek(Token![;]) => None,
+                    false => return Err(lookahead1.error()),
+                }
+            },
+            semi: input.parse()?,
+        })
+    }
+}
+
+impl ToTokens for UseContext {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        self.pound.to_tokens(tokens);
+        self.use_token.to_tokens(tokens);
+        self.context.to_tokens(tokens);
+        if let Some((as_token, pat)) = &self.as_pat {
+            as_token.to_tokens(tokens);
+            pat.to_tokens(tokens);
+        }
+        if let Some((colon, ty)) = &self.colon_ty {
+            colon.to_tokens(tokens);
+            ty.to_tokens(tokens);
+        }
+        self.semi.to_tokens(tokens);
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct NodeBody {
-    pub nodes: Vec<Node>,
+pub struct UseChildren {
+    pub pound: Token![#],
+    pub use_token: Token![use],
+    pub children: kw::children,
+    pub as_pat: Option<(Token![as], Box<syn::Pat>)>,
+    pub semi: Token![;],
 }
 
-impl Parse for NodeBody {
+impl Parse for UseChildren {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut nodes = vec![];
-        while !input.is_empty() {
-            nodes.push(Node::parse(input)?);
-        }
-        Ok(Self { nodes })
+        Ok(Self {
+            pound: input.parse()?,
+            use_token: input.parse()?,
+            children: input.parse()?,
+            as_pat: {
+                let lookahead1 = input.lookahead1();
+                match lookahead1.peek(Token![as]) {
+                    true => Some((input.parse()?, Box::new(syn::Pat::parse_single(input)?))),
+                    false if lookahead1.peek(Token![:]) => None,
+                    false => return Err(lookahead1.error()),
+                }
+            },
+            semi: input.parse()?,
+        })
     }
 }
 
-impl ToTokens for NodeBody {
+impl ToTokens for UseChildren {
     fn to_tokens(&self, tokens: &mut TokenStream) {
+        self.pound.to_tokens(tokens);
+        self.use_token.to_tokens(tokens);
+        self.children.to_tokens(tokens);
+        if let Some((as_token, pat)) = &self.as_pat {
+            as_token.to_tokens(tokens);
+            pat.to_tokens(tokens);
+        }
+        self.semi.to_tokens(tokens);
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct TemplBody {
+    pub use_context: Option<UseContext>,
+    pub use_children: Option<UseChildren>,
+    pub nodes: Vec<Node>,
+}
+
+impl Parse for TemplBody {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let mut use_context = None;
+        let mut use_children = None;
+
+        while input.peek(Token![#]) && input.peek2(Token![use]) {
+            let fork = input.fork();
+            let _: Token![#] = fork.parse()?;
+            let _: Token![use] = fork.parse()?;
+            let lookahead1 = fork.lookahead1();
+            if lookahead1.peek(kw::children) {
+                if use_children.is_some() {
+                    return Err(input.error("Cannot redefine `#use children ...`"));
+                }
+                use_children = Some(input.parse()?);
+            } else if lookahead1.peek(kw::context) {
+                if use_context.is_some() {
+                    return Err(input.error("Cannot redefine `#use context ...`"));
+                }
+                use_context = Some(input.parse()?);
+            } else {
+                return Err(lookahead1.error());
+            }
+        }
+
+        Ok(Self {
+            use_context,
+            use_children,
+            nodes: parse_to_vec(input)?,
+        })
+    }
+}
+
+impl ToTokens for TemplBody {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        self.use_context.to_tokens(tokens);
         for node in &self.nodes {
             node.to_tokens(tokens);
         }

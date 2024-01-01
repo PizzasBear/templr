@@ -7,13 +7,13 @@ use syn::{
     Ident, LitStr, Token,
 };
 
-use crate::{If, Match, Name};
+use crate::{Block, If, Let, Match, Name, PoundBlock};
 
 #[derive(Debug, Clone)]
 pub enum HtmlAttrValue {
     Ident(Ident),
     Str(LitStr),
-    Block(syn::Block),
+    Block(Block),
 }
 
 impl Parse for HtmlAttrValue {
@@ -22,7 +22,7 @@ impl Parse for HtmlAttrValue {
         if lookahead1.peek(LitStr) {
             Ok(Self::Str(input.parse()?))
         } else if lookahead1.peek(Ident::peek_any) {
-            Ok(Self::Ident(input.parse()?))
+            Ok(Self::Ident(Ident::parse_any(input)?))
         } else if lookahead1.peek(Brace) {
             Ok(Self::Block(input.parse()?))
         } else {
@@ -53,7 +53,7 @@ impl Parse for HtmlAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let toggle_flag;
         Ok(Self {
-            name: input.parse()?,
+            name: Name::parse_attr(input)?,
             toggle_flag: {
                 toggle_flag = input.parse()?;
                 toggle_flag
@@ -81,7 +81,9 @@ pub enum Attr {
     Html(HtmlAttr),
     If(If<Attr>),
     Match(Match<Attr>),
-    Spread(syn::Block),
+    Block(PoundBlock<Attr>),
+    Let(Let),
+    Spread(Block),
 }
 
 impl Parse for Attr {
@@ -95,6 +97,10 @@ impl Parse for Attr {
                 Ok(Self::If(input.parse()?))
             } else if lookahead1.peek(Token![match]) {
                 Ok(Self::Match(input.parse()?))
+            } else if lookahead1.peek(Brace) {
+                Ok(Self::Block(input.parse()?))
+            } else if lookahead1.peek(Token![let]) {
+                Ok(Self::Let(input.parse()?))
             } else {
                 Err(lookahead1.error())
             }
@@ -112,6 +118,8 @@ impl ToTokens for Attr {
             Self::Html(slf) => slf.to_tokens(tokens),
             Self::If(slf) => slf.to_tokens(tokens),
             Self::Match(slf) => slf.to_tokens(tokens),
+            Self::Block(slf) => slf.to_tokens(tokens),
+            Self::Let(slf) => slf.to_tokens(tokens),
             Self::Spread(slf) => slf.to_tokens(tokens),
         }
     }

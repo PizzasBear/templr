@@ -1,3 +1,5 @@
+use core::fmt;
+
 use proc_macro2::{TokenStream, TokenTree};
 use quote::{ToTokens, TokenStreamExt};
 use syn::{
@@ -11,27 +13,11 @@ pub struct RawText {
     pub tokens: TokenStream,
 }
 
-impl RawText {
-    pub fn to_string(&self) -> String {
-        let mut tokens = self.tokens.clone().into_iter();
-        let Some(mut span) = tokens.next().map(|tt| tt.span()) else {
-            return self.tokens.to_string();
-        };
-        for tt in tokens {
-            let Some(joined) = span.join(tt.span()) else {
-                return self.tokens.to_string();
-            };
-            span = joined;
-        }
-        span.source_text()
-            .unwrap_or_else(|| self.tokens.to_string())
-    }
-}
-
 impl Parse for RawText {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let mut tokens = TokenStream::new();
-        while !input.peek(Token![<])
+        while !input.is_empty()
+            && !input.peek(Token![<])
             && !input.peek(Token![&])
             && !input.peek(Token![#])
             && !input.peek(Brace)
@@ -48,5 +34,24 @@ impl Parse for RawText {
 impl ToTokens for RawText {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.tokens.to_tokens(tokens);
+    }
+}
+
+impl fmt::Display for RawText {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let mut tokens = self.tokens.clone().into_iter();
+        let Some(mut span) = tokens.next().map(|tt| tt.span()) else {
+            return fmt::Display::fmt(&self.tokens, f);
+        };
+        for tt in tokens {
+            let Some(joined) = span.join(tt.span()) else {
+                return fmt::Display::fmt(&self.tokens, f);
+            };
+            span = joined;
+        }
+        match span.source_text() {
+            Some(source) => fmt::Display::fmt(&source, f),
+            None => fmt::Display::fmt(&self.tokens, f),
+        }
     }
 }
