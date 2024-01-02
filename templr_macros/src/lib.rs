@@ -517,7 +517,7 @@ impl<'a> Generator<'a> {
         };
         tokens.append_all(quote_spanned! { span =>
             #crate_path::FnTemplate::new_sized(
-                |#writer, #context @ #context_pat #context_ty, #children| {
+                move |#writer, #context @ #context_pat #context_ty, #children| {
                     #inner_tokens
                     #crate_path::Result::Ok(())
                 },
