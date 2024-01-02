@@ -24,36 +24,6 @@ pub use {
     if_stmt::If, let_stmt::Let, match_stmt::Match, name::Name, raw_text::RawText,
 };
 
-macro_rules! ignore {
-    ($($_:tt)*) => {};
-}
-
-ignore! {
-    <hr
-        @click="console.log('works!')"
-        style="padding: 10px"
-        #if true {
-            class="itIsTrue"
-        }
-        {..[("hello", "world"), ("sure", "so it's enough")]}
-    />
-    #match opt {
-        Some(x) => {
-            <as>
-        }
-        None => {
-            <asd>
-        }
-    }
-    #wrapChildren("hello") {
-        <div>Inserted from the top</div>
-    }
-
-    #wrapChildren("hello", templ! {
-        <div>Inserted from the top</div>
-    })
-}
-
 /// Parses the body of a hash statement, consumes the entirery of its input
 fn parse_to_vec<T: Parse>(input: ParseStream) -> syn::Result<Vec<T>> {
     let mut body = vec![];
@@ -207,7 +177,7 @@ pub struct UseContext {
     pub use_token: Token![use],
     pub context: kw::context,
     pub as_pat: Option<(Token![as], Box<syn::Pat>)>,
-    pub colon_ty: Option<(Token![:], Box<syn::Type>)>,
+    pub colon_ty: Option<(Token![:], Token![&], Box<syn::Type>)>,
     pub semi: Token![;],
 }
 
@@ -228,7 +198,7 @@ impl Parse for UseContext {
             colon_ty: {
                 let lookahead1 = input.lookahead1();
                 match lookahead1.peek(Token![:]) {
-                    true => Some((input.parse()?, Box::new(input.parse()?))),
+                    true => Some((input.parse()?, input.parse()?, Box::new(input.parse()?))),
                     false if lookahead1.peek(Token![;]) => None,
                     false => return Err(lookahead1.error()),
                 }
@@ -247,8 +217,9 @@ impl ToTokens for UseContext {
             as_token.to_tokens(tokens);
             pat.to_tokens(tokens);
         }
-        if let Some((colon, ty)) = &self.colon_ty {
+        if let Some((colon, amp, ty)) = &self.colon_ty {
             colon.to_tokens(tokens);
+            amp.to_tokens(tokens);
             ty.to_tokens(tokens);
         }
         self.semi.to_tokens(tokens);
@@ -274,7 +245,7 @@ impl Parse for UseChildren {
                 let lookahead1 = input.lookahead1();
                 match lookahead1.peek(Token![as]) {
                     true => Some((input.parse()?, Box::new(syn::Pat::parse_single(input)?))),
-                    false if lookahead1.peek(Token![:]) => None,
+                    false if lookahead1.peek(Token![;]) => None,
                     false => return Err(lookahead1.error()),
                 }
             },

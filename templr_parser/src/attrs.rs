@@ -11,22 +11,34 @@ use crate::{Block, If, Let, Match, Name, PoundBlock};
 
 #[derive(Debug, Clone)]
 pub enum HtmlAttrValue {
-    Ident(Ident),
-    Str(LitStr),
-    Block(Block),
+    Ident(Token![=], Ident),
+    Str(Token![=], LitStr),
+    Block(Option<Token![?]>, Token![=], Block),
+    None,
 }
 
 impl Parse for HtmlAttrValue {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let lookahead1 = input.lookahead1();
-        if lookahead1.peek(LitStr) {
-            Ok(Self::Str(input.parse()?))
-        } else if lookahead1.peek(Ident::peek_any) {
-            Ok(Self::Ident(Ident::parse_any(input)?))
-        } else if lookahead1.peek(Brace) {
-            Ok(Self::Block(input.parse()?))
+        if input.peek(Token![=]) {
+            let eq = input.parse()?;
+            let lookahead1 = input.lookahead1();
+            if lookahead1.peek(LitStr) {
+                Ok(Self::Str(eq, input.parse()?))
+            } else if lookahead1.peek(Ident::peek_any) {
+                Ok(Self::Ident(eq, Ident::parse_any(input)?))
+            } else if lookahead1.peek(Brace) {
+                Ok(Self::Block(None, eq, input.parse()?))
+            } else {
+                Err(lookahead1.error())
+            }
+        } else if input.peek(Token![?]) {
+            Ok(Self::Block(
+                Some(input.parse()?),
+                input.parse()?,
+                input.parse()?,
+            ))
         } else {
-            Err(lookahead1.error())
+            Ok(Self::None)
         }
     }
 }
@@ -34,9 +46,20 @@ impl Parse for HtmlAttrValue {
 impl ToTokens for HtmlAttrValue {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         match self {
-            Self::Ident(slf) => slf.to_tokens(tokens),
-            Self::Str(slf) => slf.to_tokens(tokens),
-            Self::Block(slf) => slf.to_tokens(tokens),
+            Self::Ident(eq, slf) => {
+                eq.to_tokens(tokens);
+                slf.to_tokens(tokens);
+            }
+            Self::Str(eq, slf) => {
+                eq.to_tokens(tokens);
+                slf.to_tokens(tokens);
+            }
+            Self::Block(eq, toggle, slf) => {
+                eq.to_tokens(tokens);
+                toggle.to_tokens(tokens);
+                slf.to_tokens(tokens);
+            }
+            Self::None => {}
         }
     }
 }
@@ -44,25 +67,14 @@ impl ToTokens for HtmlAttrValue {
 #[derive(Debug, Clone)]
 pub struct HtmlAttr {
     pub name: Name,
-    pub toggle_flag: Option<Token![?]>,
-    pub eq: Token![=],
     pub value: HtmlAttrValue,
 }
 
 impl Parse for HtmlAttr {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let toggle_flag;
         Ok(Self {
             name: Name::parse_attr(input)?,
-            toggle_flag: {
-                toggle_flag = input.parse()?;
-                toggle_flag
-            },
-            eq: input.parse()?,
-            value: match toggle_flag {
-                Some(_) => HtmlAttrValue::Block(input.parse()?),
-                None => input.parse()?,
-            },
+            value: input.parse()?,
         })
     }
 }
@@ -70,8 +82,6 @@ impl Parse for HtmlAttr {
 impl ToTokens for HtmlAttr {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.name.to_tokens(tokens);
-        self.toggle_flag.to_tokens(tokens);
-        self.eq.to_tokens(tokens);
         self.value.to_tokens(tokens);
     }
 }

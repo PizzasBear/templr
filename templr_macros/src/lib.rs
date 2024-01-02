@@ -1,15 +1,13 @@
 use std::{
-    borrow::Cow,
     fmt::{self, Write},
+    marker::PhantomData,
 };
 
 use askama_escape::Escaper;
 use parser::Element;
-use proc_macro2::{Delimiter, Group, Span, TokenStream, TokenTree};
+use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::{quote, quote_spanned, ToTokens, TokenStreamExt};
-use syn::{
-    parse_quote, parse_quote_spanned, punctuated::Punctuated, spanned::Spanned, Ident, Token,
-};
+use syn::{punctuated::Punctuated, spanned::Spanned, Ident, Token};
 use templr_parser::{self as parser, Node, TemplBody};
 
 #[rustfmt::skip]
@@ -268,11 +266,11 @@ fn try_stringify_block(block: &syn::Block, can_break: bool) -> Option<String> {
 }
 
 fn writer() -> Ident {
-    Ident::new("__templer_writer", Span::mixed_site())
+    Ident::new("__templr_writer", Span::mixed_site())
 }
 
 fn context() -> Ident {
-    Ident::new("__templer_ctx", Span::mixed_site())
+    Ident::new("__templr_ctx", Span::mixed_site())
 }
 
 fn crate_path(span: Span) -> syn::Path {
@@ -283,6 +281,9 @@ fn crate_path(span: Span) -> syn::Path {
 fn isolate_block(tokens: impl ToTokens) -> TokenStream {
     let mut iter = tokens.into_token_stream().into_iter();
     let Some(first) = iter.next() else {
+        if cfg!(debug_assertions) {
+            eprintln!("something weird happened")
+        }
         return quote! { () };
     };
 
@@ -303,14 +304,6 @@ fn isolate_block(tokens: impl ToTokens) -> TokenStream {
             };
         }
     }
-}
-
-struct Generator<'a> {
-    context_ty: Option<&'a syn::Type>,
-    context_pat: Cow<'a, Box<syn::Pat>>, //Option<&'a syn::Pat>,
-    children: Cow<'a, Box<syn::Pat>>,
-    buf: String,
-    sizes: Vec<usize>,
 }
 
 const EST_EXPR_SIZE: usize = 20;
@@ -378,33 +371,18 @@ fn call_on_maybe_block(
     }
 }
 
+struct Generator<'a> {
+    buf: String,
+    sizes: Vec<usize>,
+    _phantom: PhantomData<&'a TemplBody>,
+}
+
 impl<'a> Generator<'a> {
-    fn new(body: &'a TemplBody) -> Self {
+    fn new() -> Self {
         Self {
-            context_ty: match body.use_context.as_ref().and_then(|u| u.colon_ty.as_ref()) {
-                Some((_, ty)) => Some(&ty),
-                None => None,
-            },
-            context_pat: match &body.use_context {
-                Some(u) => match &u.as_pat {
-                    Some((_, pat)) => Cow::Borrowed(&pat),
-                    None => Cow::Owned(Box::new(parse_quote_spanned! { u.context.span =>
-                        context
-                    })),
-                },
-                None => Cow::Owned(Box::new(parse_quote! { _ })),
-            },
-            children: match &body.use_children {
-                Some(u) => match &u.as_pat {
-                    Some((_, pat)) => Cow::Borrowed(&pat),
-                    None => Cow::Owned(Box::new(parse_quote_spanned! { u.children.span =>
-                        children
-                    })),
-                },
-                None => Cow::Owned(Box::new(parse_quote! { _ })),
-            },
             buf: String::new(),
             sizes: vec![],
+            _phantom: PhantomData,
         }
     }
 
@@ -432,13 +410,13 @@ impl<'a> Generator<'a> {
     }
 
     #[inline]
-    fn flush_buffer(&mut self, tokens: &mut TokenStream) {
+    fn flush_buffer(&mut self, tokens: &mut TokenStream, span: Span) {
         *self.top_size() += self.buf.len();
         let buf = &mut self.buf;
         if !buf.is_empty() {
             let writer = writer();
 
-            tokens.append_all(quote! {
+            tokens.append_all(quote_spanned! { span =>
                 ::core::fmt::Write::write_str(#writer, #buf)?;
             });
             buf.clear();
@@ -454,7 +432,10 @@ impl<'a> Generator<'a> {
                 let crate_path = crate_path(block_span);
                 let writer = writer();
 
-                self.flush_buffer(tokens);
+                if !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
+                    self.buf.push(' ');
+                }
+                self.flush_buffer(tokens, brace.span.open());
                 *self.top_size() += EST_EXPR_SIZE;
 
                 let body = isolate_block(body);
@@ -468,12 +449,18 @@ impl<'a> Generator<'a> {
     fn write_block(&mut self, tokens: &mut TokenStream, block: &syn::Block) {
         match try_stringify_block(block, true) {
             Some(s) => {
-                tokens.append_all(isolate_block(block));
-                tokens.append_all(quote_spanned! { block.brace_token.span.span() => ; });
+                match can_block_break(block) {
+                    true => tokens.append_all(isolate_block(block)),
+                    false => block.to_tokens(tokens),
+                }
+                tokens.append_all(quote_spanned! { block.brace_token.span.close() => ; });
                 self.write_escaped(&s, true);
             }
             None => {
-                self.flush_buffer(tokens);
+                if !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
+                    self.buf.push(' ');
+                }
+                self.flush_buffer(tokens, block.brace_token.span.open());
                 call_on_block(tokens, block, |tokens, expr| {
                     let block_span = block.brace_token.span.span();
                     let crate_path = crate_path(block_span);
@@ -488,27 +475,51 @@ impl<'a> Generator<'a> {
         }
     }
 
-    fn write_templ(&mut self, tokens: &mut TokenStream, span: Span, nodes: &'a [Node]) {
+    fn write_templ(&mut self, tokens: &mut TokenStream, span: Span, body: &'a TemplBody) {
         let crate_path = crate_path(Span::mixed_site());
         let context = context();
         let writer = writer();
 
         self.sizes.push(0);
         let mut inner_tokens = TokenStream::new();
-        for node in nodes {
+        for node in &body.nodes {
             self.write_node(&mut inner_tokens, node);
         }
-        self.flush_buffer(&mut inner_tokens);
+        self.flush_buffer(&mut inner_tokens, span);
         let size = self.sizes.pop().unwrap();
 
-        let context_ty = self.context_ty.map(|ty| quote_spanned! { span => : &#ty });
-        let context_pat = &self.context_pat;
-        let children = &self.children;
+        let context_ty = body
+            .use_context
+            .as_ref()
+            .and_then(|u| u.colon_ty.as_ref())
+            .map(|(colon, amp, ty)| quote! { #colon #amp #ty });
+        let context_pat_owned;
+        let context_pat: &dyn ToTokens = match &body.use_context {
+            Some(u) => match &u.as_pat {
+                Some((_, pat)) => pat,
+                None => &u.context,
+            },
+            None => {
+                context_pat_owned = quote_spanned! { span => _ };
+                &context_pat_owned
+            }
+        };
+        let children_owned;
+        let children: &dyn ToTokens = match &body.use_children {
+            Some(u) => match &u.as_pat {
+                Some((_, pat)) => pat,
+                None => &u.children,
+            },
+            None => {
+                children_owned = quote_spanned! { span => _ };
+                &children_owned
+            }
+        };
         tokens.append_all(quote_spanned! { span =>
             #crate_path::FnTemplate::new_sized(
                 |#writer, #context @ #context_pat #context_ty, #children| {
                     #inner_tokens
-                    Ok(())
+                    #crate_path::Result::Ok(())
                 },
                 #size,
             )
@@ -521,15 +532,15 @@ impl<'a> Generator<'a> {
         stmt: &'a parser::Match<T>,
         mut write_item: impl FnMut(&mut Self, &mut TokenStream, &'a T),
     ) {
-        self.flush_buffer(tokens);
-
         let parser::Match {
-            pound: _,
+            pound,
             match_token,
             expr,
             brace,
             arms,
         } = stmt;
+
+        self.flush_buffer(tokens, pound.span);
 
         let num_arms = arms.len();
         self.sizes.push(0);
@@ -546,7 +557,7 @@ impl<'a> Generator<'a> {
                 for item in body {
                     write_item(self, &mut inner_tokens, item);
                 }
-                self.flush_buffer(&mut inner_tokens);
+                self.flush_buffer(&mut inner_tokens, brace.span.close());
 
                 let guard = guard
                     .as_ref()
@@ -572,10 +583,8 @@ impl<'a> Generator<'a> {
         stmt: &'a parser::If<T>,
         mut write_item: impl FnMut(&mut Self, &mut TokenStream, &'a T),
     ) {
-        self.flush_buffer(tokens);
-
-        let parser::if_stmt::If {
-            pound: _,
+        let parser::If {
+            pound,
             if_token,
             cond,
             brace,
@@ -584,18 +593,20 @@ impl<'a> Generator<'a> {
             else_branch,
         } = stmt;
 
+        self.flush_buffer(tokens, pound.span);
+
         let num_branches = 1 + else_if_branches.len() + else_branch.is_some() as usize;
         self.sizes.push(0);
-        let mut write_nodes = |tokens: &mut _, body| {
+        let mut write_nodes = |tokens: &mut _, span, body| {
             for item in body {
                 write_item(self, tokens, item);
                 // self.write_node(tokens, item);
             }
-            self.flush_buffer(tokens);
+            self.flush_buffer(tokens, span);
         };
 
         let mut then_tokens = TokenStream::new();
-        write_nodes(&mut then_tokens, body);
+        write_nodes(&mut then_tokens, brace.span.open(), body);
 
         let else_branch = else_branch.as_ref().map(
             |parser::if_stmt::ElseBranch {
@@ -604,7 +615,7 @@ impl<'a> Generator<'a> {
                  body,
              }| {
                 let mut then_tokens = TokenStream::new();
-                write_nodes(&mut then_tokens, body);
+                write_nodes(&mut then_tokens, brace.span.open(), body);
 
                 quote_spanned! { brace.span.span() => #else_token #if_token #cond { #then_tokens } }
             },
@@ -619,7 +630,7 @@ impl<'a> Generator<'a> {
                  body,
              }| {
                 let mut then_tokens = TokenStream::new();
-                write_nodes(&mut then_tokens, body);
+                write_nodes(&mut then_tokens, brace.span.open(), body);
 
                 quote_spanned! { brace.span.span() => #else_token #if_token #cond { #then_tokens } }
             },
@@ -639,10 +650,8 @@ impl<'a> Generator<'a> {
         stmt: &'a parser::For<T>,
         mut write_item: impl FnMut(&mut Self, &mut TokenStream, &'a T),
     ) {
-        self.flush_buffer(tokens);
-
         let parser::For {
-            pound: _,
+            pound,
             for_token,
             pat,
             in_token,
@@ -650,12 +659,13 @@ impl<'a> Generator<'a> {
             brace,
             body,
         } = stmt;
+        self.flush_buffer(tokens, pound.span);
 
         let mut inner_tokens = TokenStream::new();
         for item in body {
             write_item(self, &mut inner_tokens, item);
         }
-        self.flush_buffer(&mut inner_tokens);
+        self.flush_buffer(&mut inner_tokens, brace.span.close());
 
         tokens.append_all(quote_spanned! { brace.span.span() =>
             #for_token #pat #in_token #expr {
@@ -666,31 +676,30 @@ impl<'a> Generator<'a> {
 
     fn write_attr(&mut self, tokens: &mut TokenStream, attr: &'a parser::Attr) {
         match attr {
-            parser::Attr::Html(parser::attrs::HtmlAttr {
-                name,
-                toggle_flag,
-                eq: _,
-                value,
-            }) => match value {
-                parser::attrs::HtmlAttrValue::Ident(value) => {
+            parser::Attr::Html(parser::attrs::HtmlAttr { name, value }) => match value {
+                parser::attrs::HtmlAttrValue::None => {
+                    write!(self.buf, " {name}").unwrap();
+                }
+                parser::attrs::HtmlAttrValue::Ident(_, value) => {
                     write!(self.buf, " {name}={value}").unwrap();
                 }
-                parser::attrs::HtmlAttrValue::Str(value) => {
-                    write!(self.buf, " {name}={}", value.value()).unwrap();
+                parser::attrs::HtmlAttrValue::Str(_, value) => {
+                    write!(self.buf, " {name}=\"",).unwrap();
+                    self.write_escaped(value.value(), false);
+                    write!(self.buf, "\"").unwrap();
                 }
-                parser::attrs::HtmlAttrValue::Block(cond) => match toggle_flag {
+                parser::attrs::HtmlAttrValue::Block(toggle, _, cond) => match toggle {
                     Some(toggle) => {
-                        self.flush_buffer(tokens);
+                        self.flush_buffer(tokens, toggle.span);
 
                         call_on_maybe_block(tokens, cond, |tokens, expr| {
-                            let block_span = cond.brace_span().span();
-                            let crate_path = crate_path(block_span);
+                            let crate_path = crate_path(toggle.span);
                             let writer = writer();
 
                             let mut inner_tokens = TokenStream::new();
 
                             write!(self.buf, " {name}").unwrap();
-                            self.flush_buffer(&mut inner_tokens);
+                            self.flush_buffer(&mut inner_tokens, cond.brace_span().open());
 
                             *self.top_size() += EST_EXPR_SIZE;
                             tokens.append_all(quote_spanned! { toggle.span =>
@@ -703,8 +712,9 @@ impl<'a> Generator<'a> {
                         });
                     }
                     None => {
-                        write!(self.buf, " {name}=").unwrap();
+                        write!(self.buf, " {name}=\"").unwrap();
                         self.write_maybe_block(tokens, cond);
+                        write!(self.buf, "\"").unwrap();
                     }
                 },
             },
@@ -724,6 +734,8 @@ impl<'a> Generator<'a> {
                 stmt.semi.to_tokens(tokens);
             }
             parser::Attr::Spread(block) => call_on_maybe_block(tokens, block, |tokens, expr| {
+                self.flush_buffer(tokens, block.brace_span().open());
+
                 let block_span = block.brace_span().span();
                 let crate_path = crate_path(block_span);
                 let writer = writer();
@@ -780,18 +792,14 @@ impl<'a> Generator<'a> {
     }
 
     fn write_call(&mut self, tokens: &mut TokenStream, call: &'a parser::Call) {
-        self.flush_buffer(tokens);
-
         let parser::Call { pound, expr, end } = call;
 
-        let mut expr = Group::new(
-            Delimiter::None,
-            match can_expr_break(expr) {
-                true => isolate_block(expr),
-                false => expr.to_token_stream(),
-            },
-        );
-        expr.set_span(pound.span);
+        self.flush_buffer(tokens, pound.span);
+
+        let expr = match can_expr_break(expr) {
+            true => isolate_block(expr),
+            false => expr.to_token_stream(),
+        };
 
         let crate_path = crate_path(pound.span);
         let context = context();
@@ -800,17 +808,16 @@ impl<'a> Generator<'a> {
         match end {
             parser::call::End::Semi(semi) => {
                 tokens.append_all(quote_spanned! { pound.span =>
-                    #crate_path::Template::render_into(&#expr, #writer, #context, &())? #semi
+                    #crate_path::Template::render_into(&(#expr), #writer, #context)? #semi
                 });
             }
             parser::call::End::Children(brace, body) => {
                 let mut inner_tokens = TokenStream::new();
 
-                let mut child = Self::new(body);
-                child.write_templ(&mut inner_tokens, brace.span.span(), &body.nodes);
+                self.write_templ(&mut inner_tokens, brace.span.span(), body);
 
                 tokens.append_all(quote_spanned! { pound.span =>
-                    #crate_path::Template::render_into(&#expr, #writer, #context, &#inner_tokens)?;
+                    #crate_path::Template::render_with_children_into(&(#expr), #writer, #context, &#inner_tokens)?;
                 });
             }
         }
@@ -849,7 +856,7 @@ pub fn templ(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let body = syn::parse_macro_input!(tokens as TemplBody);
 
     let mut tokens = TokenStream::new();
-    let mut generator = Generator::new(&body);
-    generator.write_templ(&mut tokens, Span::call_site(), &body.nodes);
+    let mut generator = Generator::new();
+    generator.write_templ(&mut tokens, Span::call_site(), &body);
     tokens.into()
 }
