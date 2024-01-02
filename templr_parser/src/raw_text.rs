@@ -1,9 +1,10 @@
 use core::fmt;
 
-use proc_macro2::{TokenStream, TokenTree};
+use proc_macro2::{Span, TokenStream, TokenTree};
 use quote::{ToTokens, TokenStreamExt};
 use syn::{
     parse::{Parse, ParseStream},
+    spanned::Spanned,
     token::Brace,
     Token,
 };
@@ -39,19 +40,17 @@ impl ToTokens for RawText {
 
 impl fmt::Display for RawText {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let mut tokens = self.tokens.clone().into_iter();
-        let Some(mut span) = tokens.next().map(|tt| tt.span()) else {
-            return fmt::Display::fmt(&self.tokens, f);
-        };
-        for tt in tokens {
-            let Some(joined) = span.join(tt.span()) else {
-                return fmt::Display::fmt(&self.tokens, f);
-            };
-            span = joined;
-        }
-        match span.source_text() {
+        match self.join_spans().and_then(|span| span.source_text()) {
             Some(source) => fmt::Display::fmt(&source, f),
             None => fmt::Display::fmt(&self.tokens, f),
         }
+    }
+}
+
+impl RawText {
+    pub fn join_spans(&self) -> Option<Span> {
+        let mut spans = self.tokens.clone().into_iter().map(|tt| tt.span());
+        let first_span = spans.next()?.span();
+        spans.try_fold(first_span, |sum, curr| sum.join(curr))
     }
 }

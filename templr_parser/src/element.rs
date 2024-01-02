@@ -81,6 +81,13 @@ pub struct Element {
     pub close: Option<CloseTag>,
 }
 
+impl Element {
+    #[inline]
+    pub const fn name(&self) -> &Name {
+        &self.open.name
+    }
+}
+
 impl Parse for Element {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let open = OpenTag::parse(input)?;

@@ -4,7 +4,7 @@ use std::{
 };
 
 use askama_escape::Escaper;
-use parser::Element;
+use parser::{Element, Name};
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::{quote, quote_spanned, ToTokens, TokenStreamExt};
 use syn::{punctuated::Punctuated, spanned::Spanned, Ident, Token};
@@ -688,6 +688,16 @@ impl<'a> Generator<'a> {
                     self.write_escaped(value.value(), false);
                     write!(self.buf, "\"").unwrap();
                 }
+                parser::attrs::HtmlAttrValue::Int(_, value) => {
+                    write!(self.buf, " {name}=\"",).unwrap();
+                    self.write_escaped(&value, false);
+                    write!(self.buf, "\"").unwrap();
+                }
+                parser::attrs::HtmlAttrValue::Float(_, value) => {
+                    write!(self.buf, " {name}=\"",).unwrap();
+                    self.write_escaped(&value, false);
+                    write!(self.buf, "\"").unwrap();
+                }
                 parser::attrs::HtmlAttrValue::Block(toggle, _, cond) => match toggle {
                     Some(toggle) => {
                         self.flush_buffer(tokens, toggle.span);
@@ -761,6 +771,7 @@ impl<'a> Generator<'a> {
             slash,
             gt,
         } = &element.open;
+
         let name = name.to_string();
         write!(self.buf, "<{name}").unwrap();
 

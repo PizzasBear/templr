@@ -20,9 +20,14 @@ struct Context {}
 fn experiment() {
     let _a = templ! {
         {"<script>alert(1)</script>"}
-        <hello80.80.80
+        <hello-80.80.80j
             x-on:click="hello"
-            #if true { x?={Some("hello")} normal=arg } else { x?={ false } }
+            #if true {
+                x?={ Some("hello") }
+                normal="arg"
+            } else {
+                x?={ false }
+            }
             @click="console.log(event)"
             #match true {
                 true => {
@@ -36,9 +41,8 @@ fn experiment() {
         >
             {"This is text"}
             And this is the next text: "hello"
-        </"hello80.80.80">
+        </"hello-80.80.80j">
         #for _ in 0..2 {
-            #break;
             <namida />
         }
         #hello() {
@@ -47,17 +51,17 @@ fn experiment() {
         #affoela();
         #{
             #let x = 3;
-            {x}
+            { x }
             #{
                 #let x = 5;
-                {x}
+                { x }
             }
-            {x}
+            { x }
         }
 
         #let x;
-        {x = 3; ""}
-        {x}
+        { x = 3; "" }
+        { x }
     };
 
     println!("{}", _a.render(&Context {}).unwrap());

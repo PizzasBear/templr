@@ -4,7 +4,7 @@ use syn::{
     ext::*,
     parse::{Parse, ParseStream},
     token::Brace,
-    Ident, LitStr, Token,
+    Ident, LitFloat, LitInt, LitStr, Token,
 };
 
 use crate::{Block, If, Let, Match, Name, PoundBlock};
@@ -12,6 +12,8 @@ use crate::{Block, If, Let, Match, Name, PoundBlock};
 #[derive(Debug, Clone)]
 pub enum HtmlAttrValue {
     Ident(Token![=], Ident),
+    Float(Token![=], LitFloat),
+    Int(Token![=], LitInt),
     Str(Token![=], LitStr),
     Block(Option<Token![?]>, Token![=], Block),
     None,
@@ -24,6 +26,10 @@ impl Parse for HtmlAttrValue {
             let lookahead1 = input.lookahead1();
             if lookahead1.peek(LitStr) {
                 Ok(Self::Str(eq, input.parse()?))
+            } else if lookahead1.peek(LitInt) {
+                Ok(Self::Int(eq, input.parse()?))
+            } else if lookahead1.peek(LitFloat) {
+                Ok(Self::Float(eq, input.parse()?))
             } else if lookahead1.peek(Ident::peek_any) {
                 Ok(Self::Ident(eq, Ident::parse_any(input)?))
             } else if lookahead1.peek(Brace) {
@@ -51,6 +57,14 @@ impl ToTokens for HtmlAttrValue {
                 slf.to_tokens(tokens);
             }
             Self::Str(eq, slf) => {
+                eq.to_tokens(tokens);
+                slf.to_tokens(tokens);
+            }
+            Self::Int(eq, slf) => {
+                eq.to_tokens(tokens);
+                slf.to_tokens(tokens);
+            }
+            Self::Float(eq, slf) => {
                 eq.to_tokens(tokens);
                 slf.to_tokens(tokens);
             }
