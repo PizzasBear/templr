@@ -374,6 +374,7 @@ fn call_on_maybe_block(
 struct Generator<'a> {
     buf: String,
     sizes: Vec<usize>,
+    space: bool,
     _phantom: PhantomData<&'a TemplBody>,
 }
 
@@ -382,11 +383,12 @@ impl<'a> Generator<'a> {
         Self {
             buf: String::new(),
             sizes: vec![],
+            space: false,
             _phantom: PhantomData,
         }
     }
 
-    fn write_escaped(&mut self, value: impl fmt::Display, space: bool) {
+    fn write_escaped(&mut self, value: impl fmt::Display) {
         pub struct EscapeWriter<'a>(&'a mut String);
 
         impl Write for EscapeWriter<'_> {
@@ -396,13 +398,13 @@ impl<'a> Generator<'a> {
             }
         }
 
-        if space && !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
-            self.buf.push(' ');
-        }
+        // if space && !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
+        //     self.buf.push(' ');
+        // }
         write!(EscapeWriter(&mut self.buf), "{value}").unwrap();
-        if space && !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
-            self.buf.push(' ');
-        }
+        // if space && !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
+        //     self.buf.push(' ');
+        // }
     }
 
     fn top_size(&mut self) -> &mut usize {
@@ -432,9 +434,6 @@ impl<'a> Generator<'a> {
                 let crate_path = crate_path(block_span);
                 let writer = writer();
 
-                if !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
-                    self.buf.push(' ');
-                }
                 self.flush_buffer(tokens, brace.span.open());
                 *self.top_size() += EST_EXPR_SIZE;
 
@@ -454,12 +453,9 @@ impl<'a> Generator<'a> {
                     false => block.to_tokens(tokens),
                 }
                 tokens.append_all(quote_spanned! { block.brace_token.span.close() => ; });
-                self.write_escaped(&s, true);
+                self.write_escaped(&s);
             }
             None => {
-                if !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
-                    self.buf.push(' ');
-                }
                 self.flush_buffer(tokens, block.brace_token.span.open());
                 call_on_block(tokens, block, |tokens, expr| {
                     let block_span = block.brace_token.span.span();
@@ -516,11 +512,11 @@ impl<'a> Generator<'a> {
         };
         tokens.append_all(quote_spanned! { span =>
             #crate_path::FnTemplate::new_sized(
+                #size,
                 move |#writer, #context @ #context_pat #context_ty, #children| {
                     #inner_tokens
                     #crate_path::Result::Ok(())
                 },
-                #size,
             )
         })
     }
@@ -543,6 +539,7 @@ impl<'a> Generator<'a> {
 
         let num_arms = arms.len();
         self.sizes.push(0);
+        let init_space = self.space;
 
         let arms = arms.iter().map(
             |parser::match_stmt::Arm {
@@ -553,10 +550,12 @@ impl<'a> Generator<'a> {
                  body,
              }| {
                 let mut inner_tokens = TokenStream::new();
+                self.space = init_space;
                 for item in body {
                     write_item(self, &mut inner_tokens, item);
                 }
                 self.flush_buffer(&mut inner_tokens, brace.span.close());
+                self.space = true;
 
                 let guard = guard
                     .as_ref()
@@ -596,12 +595,16 @@ impl<'a> Generator<'a> {
 
         let num_branches = 1 + else_if_branches.len() + else_branch.is_some() as usize;
         self.sizes.push(0);
+
+        let init_space = self.space;
         let mut write_nodes = |tokens: &mut _, span, body| {
+            self.space = init_space;
             for item in body {
                 write_item(self, tokens, item);
                 // self.write_node(tokens, item);
             }
             self.flush_buffer(tokens, span);
+            self.space = true;
         };
 
         let mut then_tokens = TokenStream::new();
@@ -661,6 +664,7 @@ impl<'a> Generator<'a> {
         self.flush_buffer(tokens, pound.span);
 
         let mut inner_tokens = TokenStream::new();
+        self.space = true;
         for item in body {
             write_item(self, &mut inner_tokens, item);
         }
@@ -684,17 +688,17 @@ impl<'a> Generator<'a> {
                 }
                 parser::attrs::HtmlAttrValue::Str(_, value) => {
                     write!(self.buf, " {name}=\"",).unwrap();
-                    self.write_escaped(value.value(), false);
+                    self.write_escaped(value.value());
                     write!(self.buf, "\"").unwrap();
                 }
                 parser::attrs::HtmlAttrValue::Int(_, value) => {
                     write!(self.buf, " {name}=\"",).unwrap();
-                    self.write_escaped(&value, false);
+                    self.write_escaped(&value);
                     write!(self.buf, "\"").unwrap();
                 }
                 parser::attrs::HtmlAttrValue::Float(_, value) => {
                     write!(self.buf, " {name}=\"",).unwrap();
-                    self.write_escaped(&value, false);
+                    self.write_escaped(&value);
                     write!(self.buf, "\"").unwrap();
                 }
                 parser::attrs::HtmlAttrValue::Block(toggle, _, cond) => match toggle {
@@ -784,6 +788,7 @@ impl<'a> Generator<'a> {
         write!(self.buf, ">").unwrap();
 
         let mut inner_tokens = TokenStream::new();
+        self.space = false;
         for node in &element.nodes {
             self.write_node(&mut inner_tokens, node);
         }
@@ -818,7 +823,11 @@ impl<'a> Generator<'a> {
         match end {
             parser::call::End::Semi(semi) => {
                 tokens.append_all(quote_spanned! { pound.span =>
-                    #crate_path::Template::render_into(&(#expr), #writer, #context)? #semi
+                    #crate_path::Template::render_into(
+                        &#crate_path::ToTemplate::to_template(&(#expr)),
+                        #writer,
+                        #context
+                    )? #semi
                 });
             }
             parser::call::End::Children(brace, body) => {
@@ -827,7 +836,12 @@ impl<'a> Generator<'a> {
                 self.write_templ(&mut inner_tokens, brace.span.span(), body);
 
                 tokens.append_all(quote_spanned! { pound.span =>
-                    #crate_path::Template::render_with_children_into(&(#expr), #writer, #context, &#inner_tokens)?;
+                    #crate_path::Template::render_with_children_into(
+                        &#crate_path::ToTemplate::to_template(&(#expr)),
+                        #writer,
+                        #context,
+                        &#inner_tokens,
+                    )?;
                 });
             }
         }
@@ -838,22 +852,61 @@ impl<'a> Generator<'a> {
             Node::Entity(entity) => write!(self.buf, "{entity}").unwrap(),
             Node::Doctype(doctype) => write!(self.buf, "{doctype}").unwrap(),
             Node::Element(element) => self.write_element(tokens, element),
-            Node::RawText(text) => self.write_escaped(text, true),
+            Node::RawText(text) => {
+                for token in text.tokens.clone() {
+                    match token {
+                        TokenTree::Punct(p)
+                            if matches!(p.as_char(), '.' | ',' | ':' | ';' | '!' | '?' | '%') =>
+                        {
+                            self.space = true;
+                            self.buf.push(p.as_char());
+                        }
+                        TokenTree::Punct(p) if matches!(p.as_char(), '$' | '#' | '¿' | '¡') => {
+                            if self.space {
+                                self.space = false;
+                                self.buf.push(' ');
+                            }
+                            self.buf.push(p.as_char());
+                        }
+                        _ => {
+                            if self.space {
+                                self.buf.push(' ');
+                            }
+                            self.space = true;
+                            self.write_escaped(token);
+                        }
+                    }
+                }
+            }
             Node::Paren(_, nodes) => {
+                if self.space {
+                    self.buf.push(' ');
+                }
                 self.buf.push('(');
+                self.space = false;
                 for node in nodes {
                     self.write_node(tokens, node);
                 }
                 self.buf.push(')');
             }
             Node::Bracket(_, nodes) => {
+                if self.space {
+                    self.buf.push(' ');
+                }
                 self.buf.push('(');
+                self.space = false;
                 for node in nodes {
                     self.write_node(tokens, node);
                 }
                 self.buf.push(')');
             }
-            Node::Expr(block) => self.write_maybe_block(tokens, block),
+            Node::Expr(block) => {
+                if self.space {
+                    self.buf.push(' ');
+                }
+                self.space = true;
+                self.write_maybe_block(tokens, block);
+            }
             Node::If(stmt) => self.write_if(tokens, stmt, Self::write_node),
             Node::Match(stmt) => self.write_match(tokens, stmt, Self::write_node),
             Node::For(stmt) => self.write_for(tokens, stmt, Self::write_node),
@@ -873,6 +926,176 @@ impl<'a> Generator<'a> {
     }
 }
 
+/// The `templ` macro compiles down your template to rust.
+/// It uses HTML like syntax to write templates, except:
+///
+/// 1. All tags must close with a slash (e.g. `<img src="..." />`).
+///    The slash will be removed for self closing tags during compilation,
+///    or expanded into a closing tag for all other elements (e.g. `<script src="..." />`)
+/// 2. Element and attribute names aren't as flexible as HTML,
+///    to use names that aren't supported or to prevent "name merging" you can use strings.
+///    (e.g. `<"input" "type"="hidden" "value"="..." />`)
+/// 3. Unquoted attribute names cannot end with a `?`.
+/// 4. All parenthesis and brackets must have a matching one inside the current element.
+/// 6. Raw text cannot contain certain characters (`#`, `<`, `&`, etc).
+///
+/// ```rust
+/// # use templr::{templ, Template};
+/// let t = templ! {
+///     <div class="hello world" hidden "@click"="doSomething()">
+///         Lorem ipsum dolor sit amet.
+///     </div>
+/// };
+/// let html = t.render(&()).unwrap();
+/// assert_eq!(
+///     html,
+///     r#"<div class="hello world" hidden @click="doSomething()">Lorem ipsum dolor sit amet.</div>"#,
+/// );
+/// ```
+///
+/// # Interpolation
+/// You can interpolate values using curly braces `{...}`. These can be used inside text.
+/// Interpolating strings is done at compile time, so feel free to do that when raw text isn't
+/// sufficient: (e.g. `{"#1 winner"}`).
+///
+/// ```rust
+/// # use templr::{templ, Template};
+/// let name = "Zecver";
+/// let t = templ! {
+///     Hello, {name}!
+/// };
+/// let html = t.render(&()).unwrap();
+/// assert_eq!(html, format!("Hello, {name}!"));
+/// ```
+///
+/// # Attributes
+/// Attributes may have a constant value like normal html, (e.g. `attr="..."`).
+/// Boolean attributes are likewise supported (e.g. `disabled`).
+/// You can event have unquoted identifiers and number literals as values (e.g. `value=true`).
+///
+/// Other than static attributes you can assign interpolated values using `attr={...}`.
+/// This will quote and escape the given value, so no worries.
+/// You can use optional attributes (e.g. `attr?={true}`).
+///
+/// Finally, you can omit the attribute name and use the `Attributes` trait instead.
+///
+/// ```rust
+/// # use templr::{templ, Template};
+/// let name = Some("Zecver");
+/// let value = "false";
+/// let t = templ! {
+///     <span
+///         hidden
+///         hello="world"
+///         name?={name}
+///         value={value}
+///         {..[("hey", "no")]}
+///     >
+///         Hello
+///     </span>
+/// };
+/// let html = t.render(&()).unwrap();
+/// assert_eq!(
+///     html,
+///     r#"<span hidden hello="world" name="Zecver" value="false" hey="no">Hello</span>"#,
+/// );
+/// ```
+/// # Statements
+/// templr supports `#if`, `#match`, `#for`, `#let`, and `#{}`. These can be nodes or attributes
+/// (except `#for`).
+/// These statements function like their rust counterparts but they must start with a `#`.
+///
+/// ```rust
+/// # use templr::{templ, Template};
+/// let hide_list = false;
+/// let list_type = None::<&str>;
+/// let n = 2;
+/// let error = Some("oops");
+/// let t = templ! {
+///     #match error {
+///         Some(error) => {
+///             <div class="err">{error}</div>
+///         }
+///         None => {
+///             {"All's well."}
+///         }
+///     }
+///     <ul
+///         #if hide_list {
+///             style="list-style: none; margin-left: 0;"
+///         } else if let Some(list_type) = list_type {
+///             style={format_args!("list-style: {list_type};")}
+///         }
+///     >
+///         #{
+///             #let n = n + 1;
+///             #let range = 1..=n;
+///             #for i in range {
+///                 <li>No {i}</li>
+///             }
+///         }
+///     </ul>
+///     {n}
+/// };
+/// let html = t.render(&()).unwrap();
+/// assert_eq!(
+///     html,
+///     r#"<div class="err">oops</div><ul><li>No 1</li><li>No 2</li><li>No 3</li></ul> 2"#,
+/// );
+/// ```
+///
+/// # Template Composition
+/// You can use template composition by putting a `#`, then a template expression,
+/// and finally a closing semicolon or pass children with curly braces.
+///
+/// A template can catch children passed to it using the `#use children as pattern;` command at the top.
+/// You can omit the `as pattern` part and the pattern will be `children`.
+///
+/// ```rust
+/// # use templr::{templ, Template};
+/// let hello = templ! {
+///     #use children;
+///
+///     {"Hello, "}
+///     #children;
+///     !
+/// };
+///
+/// let t = templ! {
+///     #hello {
+///         world
+///     }
+/// };
+/// let html = t.render(&()).unwrap();
+/// assert_eq!(html, "Hello, world!");
+/// ```
+///
+/// # Context
+/// Templates pass a context implicitly when instantiating. This is useful to avoid constantly
+/// passing around arguments. The context defaults to `()`.
+///
+/// You can use it using `#use context as pattern: type`. When `as pattern` is omitted, `context`
+/// is the pattern. While when `: type` is omitted, the type is infered.
+///
+/// ```rust
+/// # use templr::{templ, Template};
+/// let hello = templ! {
+///     #use children;
+///
+///     {"Hello, "}
+///     #children;
+///     !
+/// };
+///
+/// let t = templ! {
+///     #hello {
+///         #use context as name;
+///         {name}
+///     }
+/// };
+/// let html = t.render(&"Zaknar").unwrap();
+/// assert_eq!(html, r"Hello, Zaknar!");
+/// ```
 #[proc_macro]
 pub fn templ(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let body = syn::parse_macro_input!(tokens as TemplBody);

@@ -23,10 +23,10 @@ fn experiment() {
         <hello-80.80.80j
             x-on:click="hello"
             #if true {
-                x?={ Some("hello") }
+                x?={Some("hello")}
                 normal="arg"
             } else {
-                x?={ false }
+                x?={false}
             }
             @click="console.log(event)"
             #match true {
@@ -49,21 +49,19 @@ fn experiment() {
         #affoela();
         #{
             #let x = 3;
-            { x }
+            {x}
             #{
                 #let x = 5;
-                { x }
+                {x}
             }
-            { x }
+            {x}
         }
 
         #let x;
         {
             x = 3;
             ""
-        }
-        { x } { x }
-
+        } {x}
         <f />
     };
 

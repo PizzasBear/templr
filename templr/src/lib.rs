@@ -1,6 +1,6 @@
 use std::{fmt, ops};
 
-pub use anyhow::{anyhow, Error, Result};
+pub use anyhow::{self, Error, Result};
 pub use templr_macros::templ;
 
 mod attrs;
@@ -9,15 +9,18 @@ mod template;
 pub use {attrs::*, template::*};
 
 mod sealed {
-    pub trait Escapable {}
+    pub trait EscapableSeal {}
 }
 
-pub trait Escapable: sealed::Escapable {
+/// Mostly like `std::fmt::Display`, but with a `DONT_ESCAPE` flag.
+pub trait Escapable: sealed::EscapableSeal {
+    /// `true` if you don't want to process the value through the html escaper.
     const DONT_ESCAPE: bool = false;
+    /// Formats the value using the given formatter.
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result;
 }
 
-impl<T: fmt::Display> sealed::Escapable for T {}
+impl<T: fmt::Display> sealed::EscapableSeal for T {}
 impl<T: fmt::Display> Escapable for T {
     #[inline]
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -25,6 +28,7 @@ impl<T: fmt::Display> Escapable for T {
     }
 }
 
+/// Trust content and don't escape it when interpolated in templates.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Default)]
 pub struct Trust<T>(pub T);
 
@@ -40,7 +44,7 @@ impl<T> ops::DerefMut for Trust<T> {
     }
 }
 
-impl<T: fmt::Display> sealed::Escapable for Trust<T> {}
+impl<T: fmt::Display> sealed::EscapableSeal for Trust<T> {}
 impl<T: fmt::Display> Escapable for Trust<T> {
     const DONT_ESCAPE: bool = true;
     #[inline]

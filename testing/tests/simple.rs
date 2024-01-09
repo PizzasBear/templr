@@ -9,6 +9,6 @@ pub fn test_simple() {
 
     assert_eq!(
         t.render(&()).unwrap().trim(),
-        r#"<hello world this=yes and="true"> This is some text </hello> string variable interpolation"#,
+        r#"<hello world this=yes and="true">This is some text</hello> string variable interpolation"#,
     );
 }

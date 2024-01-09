@@ -1,6 +1,12 @@
 [package]
 name = "templr_parser"
 version = "0.1.0"
+description = "Parser for templr templates"
+documentation = "https://docs.rs/templr_parser"
+keywords = ["markup", "template", "html", "rsx"]
+categories = ["template-engine"]
+homepage = "https://github.com/PizzasBear/templr"
+repository = "https://github.com/PizzasBear/templr"
 license = "Apache-2.0"
 workspace = ".."
 readme = "../README.md"

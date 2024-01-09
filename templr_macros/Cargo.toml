@@ -1,6 +1,9 @@
 [package]
 name = "templr_macros"
 version = "0.1.0"
+description = "Procedural macros for templr"
+homepage = "https://github.com/PizzasBear/templr"
+repository = "https://github.com/PizzasBear/templr"
 license = "Apache-2.0"
 workspace = ".."
 readme = "../README.md"
@@ -15,3 +18,6 @@ proc-macro2 = "1.0"
 quote = "1.0"
 syn = { version = "2.0", features = ["full", "extra-traits"] }
 templr_parser = { path = "../templr_parser" }
+
+[dev-dependencies]
+templr = { path = "../templr/" }

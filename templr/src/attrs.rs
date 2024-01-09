@@ -5,10 +5,10 @@ use anyhow::anyhow;
 use crate::{write_escaped, Escapable, Result};
 
 mod sealed {
-    pub use crate::sealed::Escapable;
-    pub trait Attribute {}
-    pub trait Attributes {}
-    pub trait OptAttrValue {}
+    pub use crate::sealed::EscapableSeal;
+    pub trait AttributeSeal {}
+    pub trait AttributesSeal {}
+    pub trait OptAttrValueSeal {}
 }
 
 /// Write an attribute and check its validity.
@@ -64,12 +64,12 @@ fn write_attribute(
 }
 
 /// The attribute trait, this will write a single attribute.
-pub trait Attribute: sealed::Attribute {
+pub trait Attribute: sealed::AttributeSeal {
     /// Renders the attribute to the given fmt writer, the attribute will have a space prefixed.
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()>;
 }
 
-impl<T: Attribute + ?Sized> sealed::Attribute for &'_ T {}
+impl<T: Attribute + ?Sized> sealed::AttributeSeal for &'_ T {}
 impl<T: Attribute + ?Sized> Attribute for &'_ T {
     #[inline]
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
@@ -77,7 +77,7 @@ impl<T: Attribute + ?Sized> Attribute for &'_ T {
     }
 }
 
-impl<T: Attribute + ?Sized> sealed::Attribute for &'_ mut T {}
+impl<T: Attribute + ?Sized> sealed::AttributeSeal for &'_ mut T {}
 impl<T: Attribute + ?Sized> Attribute for &'_ mut T {
     #[inline]
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
@@ -85,7 +85,7 @@ impl<T: Attribute + ?Sized> Attribute for &'_ mut T {
     }
 }
 
-impl sealed::Attribute for String {}
+impl sealed::AttributeSeal for String {}
 impl Attribute for String {
     /// Writes a valueless attribute
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
@@ -96,7 +96,7 @@ impl Attribute for String {
     }
 }
 
-impl sealed::Attribute for str {}
+impl sealed::AttributeSeal for str {}
 impl Attribute for str {
     /// Writes a valueless attribute
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
@@ -107,7 +107,7 @@ impl Attribute for str {
     }
 }
 
-impl<N: fmt::Display, T: fmt::Display> sealed::Attribute for (N, T) {}
+impl<N: fmt::Display, T: fmt::Display> sealed::AttributeSeal for (N, T) {}
 impl<N: fmt::Display, T: fmt::Display> Attribute for (N, T) {
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         writer.write_char(' ')?;
@@ -120,7 +120,7 @@ impl<N: fmt::Display, T: fmt::Display> Attribute for (N, T) {
     }
 }
 
-impl<N: fmt::Display> sealed::Attribute for (N,) {}
+impl<N: fmt::Display> sealed::AttributeSeal for (N,) {}
 impl<N: fmt::Display> Attribute for (N,) {
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         writer.write_char(' ')?;
@@ -130,7 +130,7 @@ impl<N: fmt::Display> Attribute for (N,) {
     }
 }
 
-impl<A: Attribute> sealed::Attribute for Option<A> {}
+impl<A: Attribute> sealed::AttributeSeal for Option<A> {}
 impl<A: Attribute> Attribute for Option<A> {
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         match self {
@@ -144,31 +144,31 @@ impl<A: Attribute> Attribute for Option<A> {
 /// You can use this within a template using a braced attribute, `{...}`.
 ///
 /// ```rust
-/// use templr::Template;
+/// # use templr::{Template, templ};
 /// let style_attr = ("style", "border: 1px solid black");
-/// let t = templr::templ! {
+/// let t = templ! {
 ///     <div {style_attr}>
 ///         hello world
 ///     </div>
 /// };
-/// let html = t.render(&()).unwrap();
 ///
-/// assert_eq!(html, r#"<div style="border: 1px solid black"> hello world </div>"#);
+/// let html = t.render(&()).unwrap();
+/// assert_eq!(html, r#"<div style="border: 1px solid black">hello world</div>"#);
 /// ```
-pub trait Attributes: sealed::Attributes {
+pub trait Attributes: sealed::AttributesSeal {
     /// Renders the attributes to the given fmt writer, the attributes will be separated by spaces
     /// and be prefixed with a space.
     fn render_into(self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()>;
 }
 
-impl<T: Attribute> sealed::Attributes for T {}
+impl<T: Attribute> sealed::AttributesSeal for T {}
 impl<T: Attribute> Attributes for T {
     fn render_into(self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         Attribute::render_into(&self, writer)
     }
 }
 
-impl sealed::Attributes for () {}
+impl sealed::AttributesSeal for () {}
 impl Attributes for () {
     /// Does nothing
     #[inline]
@@ -177,7 +177,7 @@ impl Attributes for () {
     }
 }
 
-impl<I: Attribute, T: IntoIterator<Item = I>> sealed::Attributes for ops::RangeTo<T> {}
+impl<I: Attribute, T: IntoIterator<Item = I>> sealed::AttributesSeal for ops::RangeTo<T> {}
 impl<I: Attribute, T: IntoIterator<Item = I>> Attributes for ops::RangeTo<T> {
     fn render_into(self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         for attr in self.end {
@@ -188,15 +188,18 @@ impl<I: Attribute, T: IntoIterator<Item = I>> Attributes for ops::RangeTo<T> {
     }
 }
 
-pub trait OptAttrValue: sealed::OptAttrValue {
+/// The trait for optional attribute values. This is used when `attr?={value}` is evaluated.
+pub trait OptAttrValue: sealed::OptAttrValueSeal {
+    /// When `None` the attribute shouldn't be rendered.
+    /// When `Some(value)` the attribute name should be rendered followed by `value.fmt(...)`.
     fn to_opt_attr_value(self) -> Option<impl Escapable>;
 }
 
-impl sealed::OptAttrValue for bool {}
+impl sealed::OptAttrValueSeal for bool {}
 impl OptAttrValue for bool {
     fn to_opt_attr_value(self) -> Option<impl Escapable> {
         struct Nothing;
-        impl sealed::Escapable for Nothing {}
+        impl sealed::EscapableSeal for Nothing {}
         impl Escapable for Nothing {
             const DONT_ESCAPE: bool = true;
             #[inline]
@@ -211,11 +214,11 @@ impl OptAttrValue for bool {
     }
 }
 
-impl<T: fmt::Display> sealed::OptAttrValue for Option<T> {}
+impl<T: fmt::Display> sealed::OptAttrValueSeal for Option<T> {}
 impl<T: fmt::Display> OptAttrValue for Option<T> {
     fn to_opt_attr_value(self) -> Option<impl Escapable> {
         struct Prequal<T: fmt::Display>(T);
-        impl<T: fmt::Display> sealed::Escapable for Prequal<T> {}
+        impl<T: fmt::Display> sealed::EscapableSeal for Prequal<T> {}
         impl<T: fmt::Display> Escapable for Prequal<T> {
             const DONT_ESCAPE: bool = true;
             #[inline]
