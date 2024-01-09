@@ -1,5 +1,8 @@
 # templr
 
+[![Documentation](https://docs.rs/templr/badge.svg)](https://docs.rs/templr/)
+[![Latest version](https://img.shields.io/crates/v/templr.svg)](https://crates.io/crates/templr)
+
 A [templ](https://github.com/a-h/templ) inspired rust template engine.
 templr generates Rust code from your templates at compile time using a macro.
 
@@ -11,6 +14,7 @@ templr generates Rust code from your templates at compile time using a macro.
 - Full rust variables
 - Opt-out HTML escaping
 - Nice attributes
+- We have a formatter: [templrfmt](https://github.com/PizzasBear/templrfmt)!
 - Planned support for common web frameworks.
 
 ## How to get started
@@ -18,8 +22,7 @@ templr generates Rust code from your templates at compile time using a macro.
 First, add the russx dependancy to your crate's `Cargo.toml`:
 
 ```sh
-# Adds the git version, change this to the crates.io one when available
-cargo add --git https://github.com/PizzasBear/templr templr
+cargo add templr
 ```
 
 In any Rust file inside your crate, add the following:
