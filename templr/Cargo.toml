@@ -13,6 +13,6 @@ readme = "../README.md"
 edition = "2021"
 
 [dependencies]
-templr_macros = { path = "../templr_macros" }
+templr_macros = { path = "../templr_macros", version = "0.1" }
 anyhow = "1.0"
 askama_escape = "0.10"
