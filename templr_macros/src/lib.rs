@@ -4,7 +4,7 @@ use std::{
 };
 
 use askama_escape::Escaper;
-use parser::{Element, Name};
+use parser::Element;
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::{quote, quote_spanned, ToTokens, TokenStreamExt};
 use syn::{punctuated::Punctuated, spanned::Spanned, Ident, Token};
@@ -489,12 +489,11 @@ impl<'a> Generator<'a> {
         let size = self.sizes.pop().unwrap();
 
         let context_ty = body
-            .use_context
-            .as_ref()
+            .use_context()
             .and_then(|u| u.colon_ty.as_ref())
-            .map(|(colon, amp, ty)| quote! { #colon #amp #ty });
+            .map(|(colon, ty)| quote! { #colon #ty });
         let context_pat_owned;
-        let context_pat: &dyn ToTokens = match &body.use_context {
+        let context_pat: &dyn ToTokens = match body.use_context() {
             Some(u) => match &u.as_pat {
                 Some((_, pat)) => pat,
                 None => &u.context,
@@ -505,7 +504,7 @@ impl<'a> Generator<'a> {
             }
         };
         let children_owned;
-        let children: &dyn ToTokens = match &body.use_children {
+        let children: &dyn ToTokens = match body.use_children() {
             Some(u) => match &u.as_pat {
                 Some((_, pat)) => pat,
                 None => &u.children,
@@ -546,7 +545,7 @@ impl<'a> Generator<'a> {
         self.sizes.push(0);
 
         let arms = arms.iter().map(
-            |parser::match_stmt::MatchArm {
+            |parser::match_stmt::Arm {
                  pat,
                  guard,
                  fat_arrow,
@@ -730,7 +729,7 @@ impl<'a> Generator<'a> {
             },
             parser::Attr::If(stmt) => self.write_if(tokens, stmt, Self::write_attr),
             parser::Attr::Match(stmt) => self.write_match(tokens, stmt, Self::write_attr),
-            parser::Attr::Block(parser::PoundBlock { brace, body, .. }) => {
+            parser::Attr::Scope(parser::Scope { brace, body, .. }) => {
                 brace.surround(tokens, |tokens| {
                     for attr in body {
                         self.write_attr(tokens, attr);
@@ -840,17 +839,29 @@ impl<'a> Generator<'a> {
             Node::Doctype(doctype) => write!(self.buf, "{doctype}").unwrap(),
             Node::Element(element) => self.write_element(tokens, element),
             Node::RawText(text) => self.write_escaped(text, true),
+            Node::Paren(_, nodes) => {
+                self.buf.push('(');
+                for node in nodes {
+                    self.write_node(tokens, node);
+                }
+                self.buf.push(')');
+            }
+            Node::Bracket(_, nodes) => {
+                self.buf.push('(');
+                for node in nodes {
+                    self.write_node(tokens, node);
+                }
+                self.buf.push(')');
+            }
             Node::Expr(block) => self.write_maybe_block(tokens, block),
             Node::If(stmt) => self.write_if(tokens, stmt, Self::write_node),
             Node::Match(stmt) => self.write_match(tokens, stmt, Self::write_node),
             Node::For(stmt) => self.write_for(tokens, stmt, Self::write_node),
-            Node::Block(parser::PoundBlock { brace, body, .. }) => {
-                brace.surround(tokens, |tokens| {
-                    for node in body {
-                        self.write_node(tokens, node);
-                    }
-                })
-            }
+            Node::Scope(parser::Scope { brace, body, .. }) => brace.surround(tokens, |tokens| {
+                for node in body {
+                    self.write_node(tokens, node);
+                }
+            }),
             Node::Let(stmt) => {
                 stmt.let_token.to_tokens(tokens);
                 stmt.pat.to_tokens(tokens);

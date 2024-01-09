@@ -10,7 +10,7 @@ use syn::{
 use crate::parse_to_vec;
 
 #[derive(Debug, Clone)]
-pub struct MatchArm<T> {
+pub struct Arm<T> {
     pub pat: Box<syn::Pat>,
     pub guard: Option<(token::If, Box<syn::Expr>)>,
     pub fat_arrow: token::FatArrow,
@@ -18,7 +18,7 @@ pub struct MatchArm<T> {
     pub body: Vec<T>,
 }
 
-impl<T: Parse> Parse for MatchArm<T> {
+impl<T: Parse> Parse for Arm<T> {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let content;
         Ok(Self {
@@ -34,7 +34,7 @@ impl<T: Parse> Parse for MatchArm<T> {
     }
 }
 
-impl<T: ToTokens> ToTokens for MatchArm<T> {
+impl<T: ToTokens> ToTokens for Arm<T> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.pat.to_tokens(tokens);
         if let Some((if_token, expr)) = &self.guard {
@@ -56,7 +56,7 @@ pub struct Match<T> {
     pub match_token: token::Match,
     pub expr: Box<syn::Expr>,
     pub brace: Brace,
-    pub arms: Vec<MatchArm<T>>,
+    pub arms: Vec<Arm<T>>,
 }
 
 impl<T: Parse> Parse for Match<T> {

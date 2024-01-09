@@ -5,7 +5,7 @@ use quote::{ToTokens, TokenStreamExt};
 use syn::{
     parse::{Parse, ParseStream},
     spanned::Spanned,
-    token::Brace,
+    token::{Brace, Bracket, Group, Paren},
     Token,
 };
 
@@ -21,7 +21,10 @@ impl Parse for RawText {
             && !input.peek(Token![<])
             && !input.peek(Token![&])
             && !input.peek(Token![#])
+            && !input.peek(Paren)
+            && !input.peek(Bracket)
             && !input.peek(Brace)
+            && !input.peek(Group)
         {
             tokens.append(TokenTree::parse(input)?);
         }

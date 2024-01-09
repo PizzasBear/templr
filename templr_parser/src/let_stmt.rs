@@ -32,7 +32,18 @@ impl Parse for Let {
         Ok(Self {
             pound: input.parse()?,
             let_token: input.parse()?,
-            pat: Box::new(syn::Pat::parse_single(input)?),
+            pat: {
+                let pat = Box::new(syn::Pat::parse_single(input)?);
+                match input.peek(Token![:]) {
+                    true => Box::new(From::from(syn::PatType {
+                        attrs: vec![],
+                        pat,
+                        colon_token: input.parse()?,
+                        ty: Box::new(input.parse()?),
+                    })),
+                    false => pat,
+                }
+            },
             init: match input.parse()? {
                 Some(eq_token) => Some(LetInit {
                     eq_token,

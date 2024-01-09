@@ -1,9 +1,9 @@
 use proc_macro2::{extra::DelimSpan, TokenStream};
 use quote::ToTokens;
 use syn::{
-    braced,
+    braced, bracketed, parenthesized,
     parse::{Parse, ParseStream},
-    token::{self, Brace},
+    token::{self, Brace, Bracket, Group, Paren},
     Token,
 };
 
@@ -34,13 +34,13 @@ fn parse_to_vec<T: Parse>(input: ParseStream) -> syn::Result<Vec<T>> {
 }
 
 #[derive(Debug, Clone)]
-pub struct PoundBlock<T> {
+pub struct Scope<T> {
     pub pound: token::Pound,
     pub brace: Brace,
     pub body: Vec<T>,
 }
 
-impl<T: Parse> Parse for PoundBlock<T> {
+impl<T: Parse> Parse for Scope<T> {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let content;
         Ok(Self {
@@ -51,7 +51,7 @@ impl<T: Parse> Parse for PoundBlock<T> {
     }
 }
 
-impl<T: ToTokens> ToTokens for PoundBlock<T> {
+impl<T: ToTokens> ToTokens for Scope<T> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.pound.to_tokens(tokens);
         self.brace.surround(tokens, |tokens| {
@@ -107,11 +107,13 @@ pub enum Node {
     Doctype(Doctype),
     Element(Element),
     RawText(RawText),
+    Paren(Paren, Vec<Node>),
+    Bracket(Bracket, Vec<Node>),
     Expr(Block),
     If(If<Self>),
     Match(Match<Self>),
     For(For<Self>),
-    Block(PoundBlock<Self>),
+    Scope(Scope<Self>),
     Let(Let),
     Call(Call),
 }
@@ -138,10 +140,26 @@ impl Parse for Node {
             } else if input.peek2(Token![let]) {
                 Ok(Self::Let(input.parse()?))
             } else if input.peek2(Brace) {
-                Ok(Self::Block(input.parse()?))
+                Ok(Self::Scope(input.parse()?))
             } else {
                 Ok(Self::Call(input.parse()?))
             }
+        } else if input.peek(Paren) {
+            let content;
+            Ok(Self::Paren(
+                parenthesized!(content in input),
+                parse_to_vec(&content)?,
+            ))
+        } else if input.peek(Bracket) {
+            let content;
+            Ok(Self::Bracket(
+                bracketed!(content in input),
+                parse_to_vec(&content)?,
+            ))
+        } else if input.peek(Group) {
+            Err(input.error("unexpected none deliminated group"))
+        } else if input.is_empty() {
+            Err(input.error("expected a templr node"))
         } else {
             Ok(Self::RawText(input.parse()?))
         }
@@ -155,11 +173,21 @@ impl ToTokens for Node {
             Self::Doctype(slf) => slf.to_tokens(tokens),
             Self::Element(slf) => slf.to_tokens(tokens),
             Self::RawText(slf) => slf.to_tokens(tokens),
+            Self::Paren(paren, nodes) => paren.surround(tokens, |tokens| {
+                for node in nodes {
+                    node.to_tokens(tokens)
+                }
+            }),
+            Self::Bracket(bracket, nodes) => bracket.surround(tokens, |tokens| {
+                for node in nodes {
+                    node.to_tokens(tokens)
+                }
+            }),
             Self::Expr(slf) => slf.to_tokens(tokens),
             Self::If(slf) => slf.to_tokens(tokens),
             Self::Match(slf) => slf.to_tokens(tokens),
             Self::For(slf) => slf.to_tokens(tokens),
-            Self::Block(slf) => slf.to_tokens(tokens),
+            Self::Scope(slf) => slf.to_tokens(tokens),
             Self::Let(slf) => slf.to_tokens(tokens),
             Self::Call(slf) => slf.to_tokens(tokens),
         }
@@ -177,7 +205,7 @@ pub struct UseContext {
     pub use_token: Token![use],
     pub context: kw::context,
     pub as_pat: Option<(Token![as], Box<syn::Pat>)>,
-    pub colon_ty: Option<(Token![:], Token![&], Box<syn::Type>)>,
+    pub colon_ty: Option<(Token![:], Box<syn::Type>)>,
     pub semi: Token![;],
 }
 
@@ -198,7 +226,15 @@ impl Parse for UseContext {
             colon_ty: {
                 let lookahead1 = input.lookahead1();
                 match lookahead1.peek(Token![:]) {
-                    true => Some((input.parse()?, input.parse()?, Box::new(input.parse()?))),
+                    true => Some((
+                        input.parse()?,
+                        Box::new(From::from(syn::TypeReference {
+                            and_token: input.parse()?,
+                            lifetime: None,
+                            mutability: None,
+                            elem: input.parse()?,
+                        })),
+                    )),
                     false if lookahead1.peek(Token![;]) => None,
                     false => return Err(lookahead1.error()),
                 }
@@ -217,9 +253,8 @@ impl ToTokens for UseContext {
             as_token.to_tokens(tokens);
             pat.to_tokens(tokens);
         }
-        if let Some((colon, amp, ty)) = &self.colon_ty {
+        if let Some((colon, ty)) = &self.colon_ty {
             colon.to_tokens(tokens);
-            amp.to_tokens(tokens);
             ty.to_tokens(tokens);
         }
         self.semi.to_tokens(tokens);
@@ -268,40 +303,92 @@ impl ToTokens for UseChildren {
 }
 
 #[derive(Debug, Clone)]
+pub enum Use {
+    Context(UseContext),
+    Children(UseChildren),
+}
+
+impl Parse for Use {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let fork = input.fork();
+        let _: Token![#] = fork.parse()?;
+        let _: Token![use] = fork.parse()?;
+        let lookahead1 = fork.lookahead1();
+        if lookahead1.peek(kw::children) {
+            Ok(Use::Children(input.parse()?))
+        } else if lookahead1.peek(kw::context) {
+            Ok(Use::Context(input.parse()?))
+        } else {
+            Err(lookahead1.error())
+        }
+    }
+}
+
+impl ToTokens for Use {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        match self {
+            Self::Context(slf) => slf.to_tokens(tokens),
+            Self::Children(slf) => slf.to_tokens(tokens),
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
 pub struct TemplBody {
-    pub use_context: Option<UseContext>,
-    pub use_children: Option<UseChildren>,
+    pub uses: Vec<Use>,
     pub nodes: Vec<Node>,
+}
+
+impl TemplBody {
+    pub fn use_children(&self) -> Option<&UseChildren> {
+        self.uses.iter().find_map(|u| match u {
+            Use::Children(u) => Some(u),
+            _ => None,
+        })
+    }
+    pub fn use_context(&self) -> Option<&UseContext> {
+        self.uses.iter().find_map(|u| match u {
+            Use::Context(u) => Some(u),
+            _ => None,
+        })
+    }
 }
 
 impl Parse for TemplBody {
     fn parse(input: ParseStream) -> syn::Result<Self> {
-        let mut use_context = None;
-        let mut use_children = None;
+        let mut uses = vec![];
 
         while input.peek(Token![#]) && input.peek2(Token![use]) {
-            let fork = input.fork();
-            let _: Token![#] = fork.parse()?;
-            let _: Token![use] = fork.parse()?;
-            let lookahead1 = fork.lookahead1();
-            if lookahead1.peek(kw::children) {
-                if use_children.is_some() {
-                    return Err(input.error("Cannot redefine `#use children ...`"));
-                }
-                use_children = Some(input.parse()?);
-            } else if lookahead1.peek(kw::context) {
-                if use_context.is_some() {
-                    return Err(input.error("Cannot redefine `#use context ...`"));
-                }
-                use_context = Some(input.parse()?);
-            } else {
-                return Err(lookahead1.error());
-            }
+            uses.push(Use::parse(input)?);
+        }
+        if let Some(u) = uses
+            .iter()
+            .filter_map(|u| match u {
+                Use::Children(u) => Some(u),
+                _ => None,
+            })
+            .nth(1)
+        {
+            return Err(syn::Error::new(
+                u.pound.span,
+                "Cannot redefine `#use children ...`",
+            ));
+        } else if let Some(u) = uses
+            .iter()
+            .filter_map(|u| match u {
+                Use::Context(u) => Some(u),
+                _ => None,
+            })
+            .nth(1)
+        {
+            return Err(syn::Error::new(
+                u.pound.span,
+                "Cannot redefine `#use context ...`",
+            ));
         }
 
         Ok(Self {
-            use_context,
-            use_children,
+            uses,
             nodes: parse_to_vec(input)?,
         })
     }
@@ -309,7 +396,9 @@ impl Parse for TemplBody {
 
 impl ToTokens for TemplBody {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        self.use_context.to_tokens(tokens);
+        for u in &self.uses {
+            u.to_tokens(tokens);
+        }
         for node in &self.nodes {
             node.to_tokens(tokens);
         }

@@ -91,6 +91,7 @@ impl Element {
 impl Parse for Element {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         let open = OpenTag::parse(input)?;
+        let open_name = open.name.to_string();
         match open.slash {
             Some(_) => Ok(Self {
                 open,
@@ -98,25 +99,29 @@ impl Parse for Element {
                 close: None,
             }),
             None => Ok(Self {
+                open,
                 nodes: {
                     let mut nodes = vec![];
                     while !input.peek(Token![<]) || !input.peek2(Token![/]) {
+                        if input.is_empty() {
+                            return Err(
+                                input.error(format!("expected closing tag: `</{open_name}>`"))
+                            );
+                        }
                         nodes.push(Node::parse(input)?);
                     }
                     nodes
                 },
                 close: {
                     let close: CloseTag = input.parse()?;
-                    let open_name = open.name.to_string();
                     if close.name.to_string() != open_name {
                         return Err(syn::Error::new_spanned(
                             close.name,
-                            format!("Mismatched closing tag, expected: {open_name}"),
+                            format!("Mismatched closing tag, expected: `</{open_name}/>`"),
                         ));
                     }
                     Some(close)
                 },
-                open,
             }),
         }
     }

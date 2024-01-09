@@ -3,6 +3,7 @@ name = "testing"
 version = "0.1.0"
 workspace = ".."
 edition = "2021"
+publish = false
 
 [dependencies]
 templr = { path = "../templr" }

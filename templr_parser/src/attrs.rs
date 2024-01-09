@@ -7,7 +7,7 @@ use syn::{
     Ident, LitFloat, LitInt, LitStr, Token,
 };
 
-use crate::{Block, If, Let, Match, Name, PoundBlock};
+use crate::{Block, If, Let, Match, Name, Scope};
 
 #[derive(Debug, Clone)]
 pub enum HtmlAttrValue {
@@ -105,7 +105,7 @@ pub enum Attr {
     Html(HtmlAttr),
     If(If<Attr>),
     Match(Match<Attr>),
-    Block(PoundBlock<Attr>),
+    Scope(Scope<Attr>),
     Let(Let),
     Spread(Block),
 }
@@ -122,7 +122,7 @@ impl Parse for Attr {
             } else if lookahead1.peek(Token![match]) {
                 Ok(Self::Match(input.parse()?))
             } else if lookahead1.peek(Brace) {
-                Ok(Self::Block(input.parse()?))
+                Ok(Self::Scope(input.parse()?))
             } else if lookahead1.peek(Token![let]) {
                 Ok(Self::Let(input.parse()?))
             } else {
@@ -142,7 +142,7 @@ impl ToTokens for Attr {
             Self::Html(slf) => slf.to_tokens(tokens),
             Self::If(slf) => slf.to_tokens(tokens),
             Self::Match(slf) => slf.to_tokens(tokens),
-            Self::Block(slf) => slf.to_tokens(tokens),
+            Self::Scope(slf) => slf.to_tokens(tokens),
             Self::Let(slf) => slf.to_tokens(tokens),
             Self::Spread(slf) => slf.to_tokens(tokens),
         }

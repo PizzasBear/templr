@@ -37,10 +37,8 @@ fn experiment() {
                     wrong=ok
                 }
             }
-
         >
-            {"This is text"}
-            And this is the next text: "hello"
+            {"This is text"} And this is the next text 55: "hello"
         </"hello-80.80.80j">
         #for _ in 0..2 {
             <namida />
@@ -60,8 +58,13 @@ fn experiment() {
         }
 
         #let x;
-        { x = 3; "" }
-        { x }
+        {
+            x = 3;
+            ""
+        }
+        { x } { x }
+
+        <f />
     };
 
     println!("{}", _a.render(&Context {}).unwrap());
