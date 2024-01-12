@@ -12,6 +12,9 @@ workspace = ".."
 readme = "../README.md"
 edition = "2021"
 
+[package.metadata.docs.rs]
+all-features = true
+
 [dependencies]
 templr_macros = { path = "../templr_macros", version = "0.1.1" }
 anyhow = "1.0"
