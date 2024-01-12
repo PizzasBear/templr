@@ -15,7 +15,7 @@ templr generates Rust code from your templates at compile time using a macro.
 - Opt-out HTML escaping
 - Nice attributes
 - We have a formatter: [templrfmt](https://github.com/PizzasBear/templrfmt)!
-- Planned support for common web frameworks.
+- Optional built-in support for Actix-Web, Axum, Gotham, Rocket, Tide, and Warp web frameworks.
 
 ## How to get started
 

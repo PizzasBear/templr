@@ -1,6 +1,6 @@
 [package]
 name = "templr"
-version = "0.1.1"
+version = "0.1.2"
 description = "A rust template library"
 documentation = "https://docs.rs/templr"
 keywords = ["markup", "template", "html", "rsx"]
@@ -16,3 +16,22 @@ edition = "2021"
 templr_macros = { path = "../templr_macros", version = "0.1.1" }
 anyhow = "1.0"
 askama_escape = "0.10"
+
+axum-core = { version = "0.4", optional = true }
+http = { version = "1.0", optional = true }
+actix-web = { version = "4", default-features = false, optional = true }
+hyper = { version = "1.0", default-features = false, optional = true }
+warp = { version = "0.3", default-features = false, optional = true }
+tide = { version = "0.16", default-features = false, optional = true }
+gotham = { version = "0.7", default-features = false, optional = true }
+rocket = { version = "0.5.0", default-features = false, optional = true }
+
+[features]
+default = []
+axum = ["dep:axum-core", "dep:http"]
+actix-web = ["dep:actix-web"]
+hyper = ["dep:hyper"]
+warp = ["dep:warp"]
+tide = ["dep:tide"]
+gotham = ["dep:gotham"]
+rocket = ["dep:rocket"]

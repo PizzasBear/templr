@@ -169,7 +169,7 @@ impl<Ctx, T: Template<Ctx> + ?Sized> Template<Ctx> for &'_ T {
 #[derive(Debug)]
 pub struct FnTemplate<F, Ctx = ()>
 where
-    F: for<'a> Fn(&'a mut dyn fmt::Write, &'a Ctx, &'a dyn Template<Ctx>) -> Result<()>,
+    F: Fn(&mut dyn fmt::Write, &Ctx, &dyn Template<Ctx>) -> Result<()>,
 {
     size_hint: usize,
     render_into: F,
@@ -178,7 +178,7 @@ where
 
 impl<F, Ctx> FnTemplate<F, Ctx>
 where
-    F: for<'a> Fn(&'a mut dyn fmt::Write, &'a Ctx, &'a dyn Template<Ctx>) -> Result<()>,
+    F: Fn(&mut dyn fmt::Write, &Ctx, &dyn Template<Ctx>) -> Result<()>,
 {
     /// Creates a new `TemplateFn` a render_into function (see `Template::render_into`).
     /// This template will have the default size.
@@ -205,7 +205,7 @@ where
 
 impl<F, Ctx> Template<Ctx> for FnTemplate<F, Ctx>
 where
-    F: for<'a> Fn(&'a mut dyn fmt::Write, &'a Ctx, &'a dyn Template<Ctx>) -> Result<()>,
+    F: Fn(&mut dyn fmt::Write, &Ctx, &dyn Template<Ctx>) -> Result<()>,
 {
     fn size_hint(&self) -> usize {
         self.size_hint

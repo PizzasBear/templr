@@ -4,9 +4,10 @@ pub use anyhow::{self, Error, Result};
 pub use templr_macros::templ;
 
 mod attrs;
+mod response;
 mod template;
 
-pub use {attrs::*, template::*};
+pub use {attrs::*, response::*, template::*};
 
 mod sealed {
     pub trait EscapableSeal {}
