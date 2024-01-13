@@ -1,10 +1,15 @@
+#![allow(unused_imports, dead_code)]
+
 use std::fmt;
 
 use crate::{Error, FnTemplate, Result, Template, ToTemplate};
 
+/// A response struct that implements the various frameworks' response traits
 pub struct Response(pub Result<String>);
 
+/// Extension trait for generating a response
 pub trait TemplateExt<Ctx = ()>: ToTemplate<Ctx> {
+    /// Generates a `Response`
     fn response(&self, ctx: &Ctx) -> Response {
         Response(self.to_template().render(ctx))
     }
@@ -13,7 +18,6 @@ impl<Ctx, T: ToTemplate<Ctx>> TemplateExt<Ctx> for T {}
 
 use Response as TemplrResp;
 
-#[allow(dead_code)]
 const HTML_MIME_TYPE: &str = "text/html; charset=utf-8";
 
 #[cfg(feature = "axum")]
@@ -23,6 +27,7 @@ mod resp_axum {
 
     use super::*;
 
+    /// Axum support
     impl IntoResponse for TemplrResp {
         fn into_response(self) -> Response {
             match self.0 {
@@ -38,6 +43,7 @@ mod resp_axum {
         }
     }
 
+    /// Axum support
     impl<F> IntoResponse for FnTemplate<F>
     where
         F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()> + Send,
@@ -71,6 +77,7 @@ mod resp_actix_web {
     }
     impl ResponseError for AnyhowErr {}
 
+    /// Actix Web support
     impl Responder for TemplrResp {
         type Body = BoxBody;
 
@@ -84,6 +91,7 @@ mod resp_actix_web {
         }
     }
 
+    /// Actix Web support
     impl<F> Responder for FnTemplate<F>
     where
         F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()>,
@@ -105,6 +113,7 @@ mod resp_hyper {
 
     use super::*;
 
+    /// Hyper support
     impl From<TemplrResp> for Response<String> {
         fn from(slf: TemplrResp) -> Self {
             match slf.0 {
@@ -124,6 +133,7 @@ mod resp_hyper {
         }
     }
 
+    /// Hyper support
     impl<F> From<FnTemplate<F>> for Response<String>
     where
         F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()>,
@@ -144,6 +154,7 @@ mod resp_warp {
 
     use super::*;
 
+    /// Warp support
     impl Reply for TemplrResp {
         fn into_response(self) -> Response {
             match self.0 {
@@ -159,6 +170,7 @@ mod resp_warp {
         }
     }
 
+    /// Warp support
     impl<F> Reply for FnTemplate<F>
     where
         F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()> + Send,
@@ -175,6 +187,7 @@ mod resp_tide {
 
     use super::*;
 
+    /// Tide support
     impl From<TemplrResp> for Response {
         fn from(slf: TemplrResp) -> Self {
             match slf.0 {
@@ -195,6 +208,7 @@ mod resp_tide {
         }
     }
 
+    /// Tide support
     impl<F> From<FnTemplate<F>> for Response
     where
         F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()>,
@@ -218,6 +232,7 @@ mod resp_gotham {
 
     use super::*;
 
+    /// Gotham support
     impl IntoResponse for TemplrResp {
         fn into_response(self, _state: &State) -> Response<Body> {
             match self.0 {
@@ -237,6 +252,7 @@ mod resp_gotham {
         }
     }
 
+    /// Gotham support
     impl<F> IntoResponse for FnTemplate<F>
     where
         F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()>,
@@ -260,6 +276,7 @@ mod resp_rocket {
 
     use super::*;
 
+    /// Rocket support
     impl<'r, 'o: 'r> Responder<'r, 'o> for TemplrResp {
         fn respond_to(self, _req: &'r Request<'_>) -> Result<'o> {
             let body = self.0.map_err(|_| Status::InternalServerError)?;
@@ -270,6 +287,7 @@ mod resp_rocket {
         }
     }
 
+    /// Rocket support
     impl<'r, 'o: 'r, F> Responder<'r, 'o> for FnTemplate<F>
     where
         F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()>,
@@ -292,6 +310,7 @@ mod resp_salvo {
 
     use super::*;
 
+    /// Salvo support
     impl Scribe for TemplrResp {
         fn render(self, res: &mut Response) {
             match self.0 {
@@ -310,6 +329,7 @@ mod resp_salvo {
         }
     }
 
+    /// Salvo support
     impl<F> Scribe for FnTemplate<F>
     where
         F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()>,
