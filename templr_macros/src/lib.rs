@@ -352,9 +352,11 @@ fn call_on_block(
             for stmt in after {
                 stmt.to_tokens(&mut inner_tokens);
             }
-            tokens.append_all(quote::quote_spanned! { block.brace_token.span.span() => {
-                #inner_tokens
-            } });
+            if !inner_tokens.is_empty() {
+                tokens.append_all(quote::quote_spanned! { block.brace_token.span.span() => {
+                    #inner_tokens
+                } });
+            }
         }
         _ => f(tokens, isolate_block(block)),
     }
@@ -782,9 +784,11 @@ impl<'a> Generator<'a> {
         for attr in attrs {
             self.write_attr(&mut inner_tokens, attr);
         }
-        tokens.append_all(quote_spanned!(lt.span => {
-            #inner_tokens
-        }));
+        if !inner_tokens.is_empty() {
+            tokens.append_all(quote_spanned!(lt.span => {
+                #inner_tokens
+            }));
+        }
         write!(self.buf, ">").unwrap();
 
         let mut inner_tokens = TokenStream::new();
@@ -792,9 +796,11 @@ impl<'a> Generator<'a> {
         for node in &element.nodes {
             self.write_node(&mut inner_tokens, node);
         }
-        tokens.append_all(quote_spanned!(gt.span => {
-            #inner_tokens
-        }));
+        if !inner_tokens.is_empty() {
+            tokens.append_all(quote_spanned!(gt.span => {
+                #inner_tokens
+            }));
+        }
 
         if slash.is_some() {
             if !SELF_CLOSING.contains(&&*name) {
