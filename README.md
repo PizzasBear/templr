@@ -19,7 +19,7 @@ templr generates Rust code from your templates at compile time using a macro.
 
 ## How to get started
 
-First, add the russx dependancy to your crate's `Cargo.toml`:
+First, add the templr dependancy to your crate's `Cargo.toml`:
 
 ```sh
 cargo add templr
