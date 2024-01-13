@@ -20,6 +20,12 @@ use Response as TemplrResp;
 
 const HTML_MIME_TYPE: &str = "text/html; charset=utf-8";
 
+impl fmt::Display for TemplrResp {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Display::fmt(self.0.as_ref().map_err(|_| fmt::Error)?, f)
+    }
+}
+
 #[cfg(feature = "axum")]
 mod resp_axum {
     use axum_core::response::{IntoResponse, Response};

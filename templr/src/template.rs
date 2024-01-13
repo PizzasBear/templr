@@ -219,3 +219,40 @@ where
         (self.render_into)(writer, ctx, children)
     }
 }
+
+impl<F> fmt::Display for FnTemplate<F>
+where
+    F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()> + Send,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        self.render_into(f, &()).map_err(|_| fmt::Error)
+    }
+}
+
+/// Return type for functions that return `templ! { ... }`.
+/// This takes a lifetime (defaults to `'static`) and a context type (defaults to `()`).
+///
+/// ```rust
+/// # use templr::{templ, templ_ret};
+/// fn hello(name: &str) -> templ_ret!['_, ()] {
+///     templ! {
+///         Hello, {name}!
+///     }
+/// }
+/// ```
+#[macro_export]
+macro_rules! templ_ret {
+    ($lt:lifetime, $ctx:ty $(,)?) => {
+        $crate::FnTemplate<
+            impl $lt + Fn(
+                &mut dyn ::std::fmt::Write,
+                &$ctx,
+                &dyn $crate::Template<$ctx>,
+            ) -> $crate::Result<()>,
+            $ctx,
+        >
+    };
+    ($lt:lifetime $(,)?) => { $crate::templ_ret![$lt, ()] };
+    ($ctx:ty $(,)?) => { $crate::templ_ret!['static, $ctx] };
+    () => { $crate::templ_ret!['static, ()] };
+}

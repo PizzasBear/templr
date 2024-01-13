@@ -28,9 +28,9 @@ cargo add templr
 In any Rust file inside your crate, add the following:
 
 ```rust
-use templr::{Template, templ};
+use templr::{Template, templ, templ_ret};
 
-pub fn hello(name: &str) -> impl Template + '_ {
+pub fn hello(name: &str) -> templ_ret!['_] {
     templ! {
         <p>Hello, {name}!</p>
     }

@@ -1,6 +1,6 @@
-use templr::{templ, Template};
+use templr::{templ, templ_ret, Template};
 
-fn hello() -> impl Template<Context> {
+fn hello() -> templ_ret![Context] {
     templ! {
         #use children as children;
 
@@ -8,7 +8,7 @@ fn hello() -> impl Template<Context> {
     }
 }
 
-fn affoela() -> impl Template<Context> {
+fn affoela() -> templ_ret![Context] {
     templ! {
         affoela
     }
