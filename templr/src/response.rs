@@ -14,7 +14,7 @@ impl<Ctx, T: ToTemplate<Ctx>> TemplateExt<Ctx> for T {}
 use Response as TemplrResp;
 
 #[allow(dead_code)]
-const HTML_MIME_TYPE: &str = "text/html";
+const HTML_MIME_TYPE: &str = "text/html; charset=utf-8";
 
 #[cfg(feature = "axum")]
 mod resp_axum {
@@ -136,10 +136,10 @@ mod resp_hyper {
 
 #[cfg(feature = "warp")]
 mod resp_warp {
-    pub use warp::reply::{Reply, Response};
     use warp::{
         http::{self, header, StatusCode},
         hyper::Body,
+        reply::{Reply, Response},
     };
 
     use super::*;
@@ -171,7 +171,7 @@ mod resp_warp {
 
 #[cfg(feature = "tide")]
 mod resp_tide {
-    pub use tide::{Body, Response};
+    use tide::{Body, Response};
 
     use super::*;
 
@@ -207,11 +207,14 @@ mod resp_tide {
 
 #[cfg(feature = "gotham")]
 mod resp_gotham {
-    use gotham::hyper::{
-        header::{self, HeaderValue},
-        Body, Response, StatusCode,
+    use gotham::{
+        handler::IntoResponse,
+        hyper::{
+            header::{self, HeaderValue},
+            Body, Response, StatusCode,
+        },
+        state::State,
     };
-    use gotham::{handler::IntoResponse, state::State};
 
     use super::*;
 
@@ -251,8 +254,6 @@ mod resp_rocket {
     use rocket::{
         http::{Header, Status},
         response::Response,
-    };
-    pub use rocket::{
         response::{Responder, Result},
         Request,
     };
@@ -275,6 +276,46 @@ mod resp_rocket {
     {
         fn respond_to(self, req: &'r Request<'_>) -> Result<'o> {
             self.response(&()).respond_to(req)
+        }
+    }
+}
+
+#[cfg(feature = "salvo")]
+mod resp_salvo {
+    use salvo_core::{
+        http::{
+            header::{self, HeaderValue},
+            StatusCode,
+        },
+        Response, Scribe,
+    };
+
+    use super::*;
+
+    impl Scribe for TemplrResp {
+        fn render(self, res: &mut Response) {
+            match self.0 {
+                Ok(body) => {
+                    res.status_code(StatusCode::OK);
+                    res.body(body.into());
+                    res.headers_mut().insert(
+                        header::CONTENT_TYPE,
+                        HeaderValue::from_static(HTML_MIME_TYPE),
+                    );
+                }
+                Err(_) => {
+                    res.status_code(StatusCode::INTERNAL_SERVER_ERROR);
+                }
+            }
+        }
+    }
+
+    impl<F> Scribe for FnTemplate<F>
+    where
+        F: Fn(&mut dyn fmt::Write, &(), &dyn Template<()>) -> crate::Result<()>,
+    {
+        fn render(self, res: &mut Response) {
+            self.response(&()).render(res)
         }
     }
 }
