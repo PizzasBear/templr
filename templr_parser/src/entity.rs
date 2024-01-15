@@ -89,7 +89,7 @@ impl Parse for HexEntity {
             hex: {
                 let ident: Ident = input.parse()?;
                 let s = ident.to_string();
-                if !s.starts_with("x") || !s[1..].bytes().all(|b| b.is_ascii_hexdigit()) {
+                if !s.starts_with('x') || !s[1..].bytes().all(|b| b.is_ascii_hexdigit()) {
                     return Err(syn::Error::new_spanned(ident, "invalid entity code"));
                 }
                 ident

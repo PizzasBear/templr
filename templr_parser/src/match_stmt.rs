@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::ToTokens;
+use quote::{ToTokens, TokenStreamExt};
 use syn::{
     braced,
     parse::{Parse, ParseStream},
@@ -43,9 +43,7 @@ impl<T: ToTokens> ToTokens for Arm<T> {
         }
         self.fat_arrow.to_tokens(tokens);
         self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
+            tokens.append_all(&self.body);
         });
     }
 }
@@ -78,9 +76,7 @@ impl<T: ToTokens> ToTokens for Match<T> {
         self.match_token.to_tokens(tokens);
         self.expr.to_tokens(tokens);
         self.brace.surround(tokens, |tokens| {
-            for arm in &self.arms {
-                arm.to_tokens(tokens)
-            }
+            tokens.append_all(&self.arms);
         });
     }
 }

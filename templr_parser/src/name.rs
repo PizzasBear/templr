@@ -1,7 +1,7 @@
 use core::fmt;
 
 use proc_macro2::{Punct, Spacing, TokenStream};
-use quote::ToTokens;
+use quote::{ToTokens, TokenStreamExt};
 use syn::{ext::*, parse::ParseStream, spanned::Spanned, Ident, LitFloat, LitInt, LitStr, Token};
 
 #[rustfmt::skip]
@@ -138,27 +138,27 @@ impl NamePart {
         } else if lookahead1.peek(Token![.]) {
             let punct: Punct = input.parse()?;
             let mut tk: Token![.] = Default::default();
-            tk.span = punct.span();
+            tk.spans[0] = punct.span();
             Self::Dot(tk, punct.spacing())
         } else if lookahead1.peek(Token![-]) {
             let punct: Punct = input.parse()?;
             let mut tk: Token![-] = Default::default();
-            tk.span = punct.span();
+            tk.spans[0] = punct.span();
             Self::Hyphen(tk, punct.spacing())
         } else if lookahead1.peek(Token![:]) {
             let punct: Punct = input.parse()?;
             let mut tk: Token![:] = Default::default();
-            tk.span = punct.span();
+            tk.spans[0] = punct.span();
             Self::Colon(tk, punct.spacing())
         } else if lookahead1.peek(Token![@]) {
             let punct: Punct = input.parse()?;
             let mut tk: Token![@] = Default::default();
-            tk.span = punct.span();
+            tk.spans[0] = punct.span();
             Self::At(tk, punct.spacing())
         } else if lookahead1.peek(Token![?]) {
             let punct: Punct = input.parse()?;
             let mut tk: Token![?] = Default::default();
-            tk.span = punct.span();
+            tk.spans[0] = punct.span();
             Self::Question(tk, punct.spacing())
         } else {
             return Err(lookahead1.error());
@@ -175,7 +175,7 @@ impl NamePart {
         let ident = Ident::parse_any(input)?;
 
         let s = ident.to_string();
-        if s.starts_with(|ch: char| !matches!(ch, 'a'..='z')) || s.contains(is_invalid_tagname_char)
+        if s.starts_with(|ch: char| !ch.is_ascii_lowercase()) || s.contains(is_invalid_tagname_char)
         {
             Err(syn::Error::new(ident.span(), INVALID_TAG_MSG))
         } else {
@@ -195,12 +195,12 @@ impl NamePart {
         } else if lookahead1.peek(Token![.]) {
             let punct: Punct = input.parse()?;
             let mut tk: Token![.] = Default::default();
-            tk.span = punct.span();
+            tk.spans[0] = punct.span();
             Self::Dot(tk, punct.spacing())
         } else if lookahead1.peek(Token![-]) {
             let punct: Punct = input.parse()?;
             let mut tk: Token![-] = Default::default();
-            tk.span = punct.span();
+            tk.spans[0] = punct.span();
             Self::Hyphen(tk, punct.spacing())
         } else {
             return Err(lookahead1.error());
@@ -254,7 +254,7 @@ impl Name {
         if input.peek(LitStr) {
             let lit: LitStr = input.parse()?;
             let value = lit.value();
-            if value.starts_with(|ch: char| !matches!(ch, 'a'..='z'))
+            if value.starts_with(|ch: char| !ch.is_ascii_lowercase())
                 || value.contains(is_invalid_tagname_char)
             {
                 return Err(syn::Error::new(lit.span(), INVALID_TAG_MSG));
@@ -291,9 +291,7 @@ impl ToTokens for Name {
         match self {
             Self::Str(slf) => slf.to_tokens(tokens),
             Self::Parts(parts) => {
-                for part in parts {
-                    part.to_tokens(tokens);
-                }
+                tokens.append_all(parts);
             }
         }
     }

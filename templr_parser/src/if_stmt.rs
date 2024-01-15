@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::ToTokens;
+use quote::{ToTokens, TokenStreamExt};
 use syn::{
     braced,
     parse::{Parse, ParseStream},
@@ -37,9 +37,7 @@ impl<T: ToTokens> ToTokens for ElseIfBranch<T> {
         self.if_token.to_tokens(tokens);
         self.cond.to_tokens(tokens);
         self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
+            tokens.append_all(&self.body);
         });
     }
 }
@@ -66,9 +64,7 @@ impl<T: ToTokens> ToTokens for ElseBranch<T> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.else_token.to_tokens(tokens);
         self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
+            tokens.append_all(&self.body);
         });
     }
 }
@@ -114,13 +110,9 @@ impl<T: ToTokens> ToTokens for If<T> {
         self.if_token.to_tokens(tokens);
         self.cond.to_tokens(tokens);
         self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
+            tokens.append_all(&self.body);
         });
-        for branch in &self.else_if_branches {
-            branch.to_tokens(tokens);
-        }
+        tokens.append_all(&self.else_if_branches);
         self.else_branch.to_tokens(tokens);
     }
 }

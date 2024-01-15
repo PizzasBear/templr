@@ -1,5 +1,5 @@
 use proc_macro2::{extra::DelimSpan, TokenStream};
-use quote::ToTokens;
+use quote::{ToTokens, TokenStreamExt};
 use syn::{
     braced, bracketed, parenthesized,
     parse::{Parse, ParseStream},
@@ -55,9 +55,7 @@ impl<T: ToTokens> ToTokens for Scope<T> {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.pound.to_tokens(tokens);
         self.brace.surround(tokens, |tokens| {
-            for item in &self.body {
-                item.to_tokens(tokens)
-            }
+            tokens.append_all(&self.body);
         });
     }
 }
@@ -174,14 +172,10 @@ impl ToTokens for Node {
             Self::Element(slf) => slf.to_tokens(tokens),
             Self::RawText(slf) => slf.to_tokens(tokens),
             Self::Paren(paren, nodes) => paren.surround(tokens, |tokens| {
-                for node in nodes {
-                    node.to_tokens(tokens)
-                }
+                tokens.append_all(nodes);
             }),
             Self::Bracket(bracket, nodes) => bracket.surround(tokens, |tokens| {
-                for node in nodes {
-                    node.to_tokens(tokens)
-                }
+                tokens.append_all(nodes);
             }),
             Self::Expr(slf) => slf.to_tokens(tokens),
             Self::If(slf) => slf.to_tokens(tokens),
@@ -396,11 +390,7 @@ impl Parse for TemplBody {
 
 impl ToTokens for TemplBody {
     fn to_tokens(&self, tokens: &mut TokenStream) {
-        for u in &self.uses {
-            u.to_tokens(tokens);
-        }
-        for node in &self.nodes {
-            node.to_tokens(tokens);
-        }
+        tokens.append_all(&self.uses);
+        tokens.append_all(&self.nodes);
     }
 }

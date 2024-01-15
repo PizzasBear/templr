@@ -1,5 +1,5 @@
 use proc_macro2::TokenStream;
-use quote::ToTokens;
+use quote::{ToTokens, TokenStreamExt};
 use syn::{
     parse::{Parse, ParseStream},
     Token,
@@ -38,9 +38,7 @@ impl ToTokens for OpenTag {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.lt.to_tokens(tokens);
         self.name.to_tokens(tokens);
-        for attr in &self.attrs {
-            attr.to_tokens(tokens);
-        }
+        tokens.append_all(&self.attrs);
         self.slash.to_tokens(tokens);
         self.gt.to_tokens(tokens);
     }
@@ -130,9 +128,7 @@ impl Parse for Element {
 impl ToTokens for Element {
     fn to_tokens(&self, tokens: &mut TokenStream) {
         self.open.to_tokens(tokens);
-        for node in &self.nodes {
-            node.to_tokens(tokens);
-        }
+        tokens.append_all(&self.nodes);
         self.close.to_tokens(tokens);
     }
 }

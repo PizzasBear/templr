@@ -63,7 +63,7 @@ fn can_macro_break(mac: &syn::Macro) -> bool {
             .iter()
             .any(|s| ident == s)
         {
-            return true;
+            true
         } else if [
             "todo",
             "unreachable",
@@ -334,9 +334,7 @@ fn call_on_block(
             let (stmt, after) = after.split_first().unwrap();
 
             let mut inner_tokens = TokenStream::new();
-            for stmt in before {
-                stmt.to_tokens(&mut inner_tokens);
-            }
+            inner_tokens.append_all(before);
             f(
                 &mut inner_tokens,
                 match stmt {
@@ -349,9 +347,7 @@ fn call_on_block(
                     _ => unreachable!(),
                 },
             );
-            for stmt in after {
-                stmt.to_tokens(&mut inner_tokens);
-            }
+            inner_tokens.append_all(after);
             surround_with_block(tokens, block.brace_token.span.span(), inner_tokens, false);
         }
         _ => f(tokens, isolate_block(block)),
@@ -380,7 +376,8 @@ fn surround_with_block(
         Some(TokenTree::Group(first))
             if first.delimiter() == Delimiter::Brace && inner_tokens.peek().is_none() =>
         {
-            tokens.append(first);
+            let inner = first.stream();
+            tokens.append_all(quote_spanned!(span => { #inner }));
         }
         Some(first) => tokens.append_all(quote_spanned!(span => {
             #first
@@ -468,9 +465,17 @@ impl<'a> Generator<'a> {
     fn write_block(&mut self, tokens: &mut TokenStream, block: &syn::Block) {
         match try_stringify_block(block, true) {
             Some(s) => {
+                tokens.append_all(quote_spanned! { block.brace_token.span.open() => _ = });
                 match can_block_break(block) {
                     true => tokens.append_all(isolate_block(block)),
-                    false => block.to_tokens(tokens),
+                    false => {
+                        block.brace_token.surround(tokens, |tokens| {
+                            tokens.append_all(quote_spanned! { block.brace_token.span.open() =>
+                                _ = 0;
+                            });
+                            tokens.append_all(&block.stmts);
+                        });
+                    }
                 }
                 tokens.append_all(quote_spanned! { block.brace_token.span.close() => ; });
                 self.write_escaped(&s);
@@ -707,12 +712,12 @@ impl<'a> Generator<'a> {
                 }
                 parser::attrs::HtmlAttrValue::Int(_, value) => {
                     write!(self.buf, " {name}=\"",).unwrap();
-                    self.write_escaped(&value);
+                    self.write_escaped(value);
                     write!(self.buf, "\"").unwrap();
                 }
                 parser::attrs::HtmlAttrValue::Float(_, value) => {
                     write!(self.buf, " {name}=\"",).unwrap();
-                    self.write_escaped(&value);
+                    self.write_escaped(value);
                     write!(self.buf, "\"").unwrap();
                 }
                 parser::attrs::HtmlAttrValue::Block(toggle, _, cond) => match toggle {
@@ -730,7 +735,7 @@ impl<'a> Generator<'a> {
 
                             *self.top_size() += EST_EXPR_SIZE;
                             tokens.append_all(quote_spanned! { toggle.span =>
-                                _ = ();
+                                _ = 0;
                                 if let Some(view) = #crate_path::OptAttrValue::to_opt_attr_value(#expr) {
                                     #inner_tokens
                                     #crate_path::write_escaped(#writer, &view)?;

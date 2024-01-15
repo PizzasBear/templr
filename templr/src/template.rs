@@ -110,9 +110,7 @@ pub trait Template<Ctx = ()> {
                 if output.error.is_err() {
                     output.error
                 } else {
-                    match err {
-                        err => Err(io::Error::new(io::ErrorKind::Other, err)),
-                    }
+                    Err(io::Error::new(io::ErrorKind::Other, err))
                 }
             }
         }
