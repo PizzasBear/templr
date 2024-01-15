@@ -352,11 +352,7 @@ fn call_on_block(
             for stmt in after {
                 stmt.to_tokens(&mut inner_tokens);
             }
-            if !inner_tokens.is_empty() {
-                tokens.append_all(quote::quote_spanned! { block.brace_token.span.span() => {
-                    #inner_tokens
-                } });
-            }
+            surround_with_block(tokens, block.brace_token.span.span(), inner_tokens, false);
         }
         _ => f(tokens, isolate_block(block)),
     }
@@ -370,6 +366,28 @@ fn call_on_maybe_block(
     match block {
         parser::Block::Valid(block) => call_on_block(tokens, block, f),
         parser::Block::Invalid { body, .. } => f(tokens, isolate_block(body)),
+    }
+}
+
+fn surround_with_block(
+    tokens: &mut TokenStream,
+    span: Span,
+    inner_tokens: TokenStream,
+    require_brace: bool,
+) {
+    let mut inner_tokens = inner_tokens.into_iter().peekable();
+    match inner_tokens.next() {
+        Some(TokenTree::Group(first))
+            if first.delimiter() == Delimiter::Brace && inner_tokens.peek().is_none() =>
+        {
+            tokens.append(first);
+        }
+        Some(first) => tokens.append_all(quote_spanned!(span => {
+            #first
+            #(#inner_tokens)*
+        })),
+        None if require_brace => tokens.append_all(quote_spanned!(span => {})),
+        None => {}
     }
 }
 
@@ -465,9 +483,9 @@ impl<'a> Generator<'a> {
                     let writer = writer();
 
                     *self.top_size() += EST_EXPR_SIZE;
-                    tokens.append_all(quote_spanned! { block_span => {
+                    tokens.append_all(quote_spanned! { block_span =>
                         #crate_path::write_escaped(#writer, &(#expr))?;
-                    } });
+                    });
                 });
             }
         }
@@ -563,9 +581,9 @@ impl<'a> Generator<'a> {
                     .as_ref()
                     .map(|(if_token, cond)| quote! { #if_token #cond });
 
-                quote_spanned! { brace.span.span() =>
-                    #pat #guard #fat_arrow { #inner_tokens }
-                }
+                let mut tokens = quote! { #pat #guard #fat_arrow };
+                surround_with_block(&mut tokens, brace.span.span(), inner_tokens, true);
+                tokens
             },
         );
 
@@ -612,37 +630,34 @@ impl<'a> Generator<'a> {
         let mut then_tokens = TokenStream::new();
         write_nodes(&mut then_tokens, brace.span.open(), body);
 
-        let else_branch = else_branch.as_ref().map(
-            |parser::if_stmt::ElseBranch {
-                 else_token,
-                 brace,
-                 body,
-             }| {
-                let mut then_tokens = TokenStream::new();
-                write_nodes(&mut then_tokens, brace.span.open(), body);
+        tokens.append_all(quote! { #if_token #cond });
+        surround_with_block(tokens, brace.span.span(), then_tokens, true);
+        for branch in else_if_branches {
+            let parser::if_stmt::ElseIfBranch {
+                else_token,
+                if_token,
+                cond,
+                brace,
+                body,
+            } = branch;
+            let mut then_tokens = TokenStream::new();
+            write_nodes(&mut then_tokens, brace.span.open(), body);
 
-                quote_spanned! { brace.span.span() => #else_token #if_token #cond { #then_tokens } }
-            },
-        );
+            tokens.append_all(quote! { #else_token #if_token #cond });
+            surround_with_block(tokens, brace.span.span(), then_tokens, true);
+        }
+        if let Some(parser::if_stmt::ElseBranch {
+            else_token,
+            brace,
+            body,
+        }) = else_branch
+        {
+            let mut then_tokens = TokenStream::new();
+            write_nodes(&mut then_tokens, brace.span.open(), body);
 
-        let else_if_branches = else_if_branches.iter().map(
-            |parser::if_stmt::ElseIfBranch {
-                 else_token,
-                 if_token,
-                 cond,
-                 brace,
-                 body,
-             }| {
-                let mut then_tokens = TokenStream::new();
-                write_nodes(&mut then_tokens, brace.span.open(), body);
-
-                quote_spanned! { brace.span.span() => #else_token #if_token #cond { #then_tokens } }
-            },
-        );
-
-        tokens.append_all(quote_spanned! { brace.span.span() =>
-            #if_token #cond { #then_tokens } #(#else_if_branches)* #else_branch
-        });
+            tokens.append_all(quote! { #else_token });
+            surround_with_block(tokens, brace.span.span(), then_tokens, true);
+        }
 
         let avg_size = self.sizes.pop().unwrap() / num_branches;
         *self.top_size() += avg_size;
@@ -672,11 +687,8 @@ impl<'a> Generator<'a> {
         }
         self.flush_buffer(&mut inner_tokens, brace.span.close());
 
-        tokens.append_all(quote_spanned! { brace.span.span() =>
-            #for_token #pat #in_token #expr {
-                #inner_tokens
-            }
-        })
+        tokens.append_all(quote! { #for_token #pat #in_token #expr });
+        surround_with_block(tokens, brace.span.span(), inner_tokens, true);
     }
 
     fn write_attr(&mut self, tokens: &mut TokenStream, attr: &'a parser::Attr) {
@@ -784,11 +796,7 @@ impl<'a> Generator<'a> {
         for attr in attrs {
             self.write_attr(&mut inner_tokens, attr);
         }
-        if !inner_tokens.is_empty() {
-            tokens.append_all(quote_spanned!(lt.span => {
-                #inner_tokens
-            }));
-        }
+        surround_with_block(tokens, lt.span, inner_tokens, false);
         write!(self.buf, ">").unwrap();
 
         let mut inner_tokens = TokenStream::new();
@@ -796,11 +804,7 @@ impl<'a> Generator<'a> {
         for node in &element.nodes {
             self.write_node(&mut inner_tokens, node);
         }
-        if !inner_tokens.is_empty() {
-            tokens.append_all(quote_spanned!(gt.span => {
-                #inner_tokens
-            }));
-        }
+        surround_with_block(tokens, gt.span, inner_tokens, false);
 
         if slash.is_some() {
             if !SELF_CLOSING.contains(&&*name) {
