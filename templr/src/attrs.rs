@@ -4,6 +4,10 @@ use anyhow::anyhow;
 
 use crate::{write_escaped, Escapable, Result};
 
+pub mod class;
+
+pub use class::ClassAttr;
+
 mod sealed {
     pub use crate::sealed::EscapableSeal;
     pub trait AttributeSeal {}
@@ -12,9 +16,9 @@ mod sealed {
 }
 
 /// Write an attribute and check its validity.
-fn write_attribute(
+fn write_attribute_name(
     writer: &mut (impl fmt::Write + ?Sized),
-    value: &(impl fmt::Display + ?Sized),
+    name: &(impl fmt::Display + ?Sized),
 ) -> Result<()> {
     use fmt::Write;
 
@@ -55,7 +59,7 @@ fn write_attribute(
         writer,
     };
 
-    write!(attr_writer, "{value}")?;
+    write!(attr_writer, "{name}")?;
     if !attr_writer.has_written {
         return Err(anyhow!("attribute name cannot be empty"));
     }
@@ -90,7 +94,7 @@ impl Attribute for String {
     /// Writes a valueless attribute
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         writer.write_char(' ')?;
-        write_attribute(writer, self)?;
+        write_attribute_name(writer, self)?;
 
         Ok(())
     }
@@ -101,7 +105,7 @@ impl Attribute for str {
     /// Writes a valueless attribute
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         writer.write_char(' ')?;
-        write_attribute(writer, self)?;
+        write_attribute_name(writer, self)?;
 
         Ok(())
     }
@@ -111,7 +115,7 @@ impl<N: fmt::Display, T: fmt::Display> sealed::AttributeSeal for (N, T) {}
 impl<N: fmt::Display, T: fmt::Display> Attribute for (N, T) {
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         writer.write_char(' ')?;
-        write_attribute(writer, &self.0)?;
+        write_attribute_name(writer, &self.0)?;
         writer.write_str("=\"")?;
         write_escaped(writer, &self.1)?;
         writer.write_char('"')?;
@@ -124,7 +128,7 @@ impl<N: fmt::Display> sealed::AttributeSeal for (N,) {}
 impl<N: fmt::Display> Attribute for (N,) {
     fn render_into(&self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
         writer.write_char(' ')?;
-        write_attribute(writer, &self.0)?;
+        write_attribute_name(writer, &self.0)?;
 
         Ok(())
     }
@@ -141,7 +145,7 @@ impl<A: Attribute> Attribute for Option<A> {
 }
 
 /// The attributes trait, this can write a variable amount of attributes.
-/// You can use this within a template using a braced attribute, `{...}`.
+/// You can use this within [`templ!`][crate::templ] using a braced attribute, `{...}`.
 ///
 /// ```rust
 /// # use templr::{Template, templ};
@@ -190,8 +194,9 @@ impl<I: Attribute, T: IntoIterator<Item = I>> Attributes for ops::RangeTo<T> {
 
 /// The trait for optional attribute values. This is used when `attr?={value}` is evaluated.
 pub trait OptAttrValue: sealed::OptAttrValueSeal {
-    /// When `None` the attribute shouldn't be rendered.
-    /// When `Some(value)` the attribute name should be rendered followed by `value.fmt(...)`.
+    /// When [`None`] the attribute shouldn't be rendered.
+    /// When [`Some(value)`](std::option::Option::Some) the attribute name should be rendered
+    /// followed by [`value.fmt(...)`](Escapable::fmt).
     fn to_opt_attr_value(self) -> Option<impl Escapable>;
 }
 

@@ -2,10 +2,10 @@ use std::{fmt, io, marker::PhantomData};
 
 use crate::Result;
 
-/// Asserts that `Template` is object safe.
+/// Asserts that [`Template`] is object safe.
 struct _DynTemplate(dyn Template);
 
-/// A trait to convert a type to a template. Used when instantiating templates.
+/// A trait to convert a type to a [`Template`]. Used when instantiating templates.
 ///
 /// Useful to implement on `struct`s.
 ///
@@ -41,12 +41,13 @@ impl<Ctx, T: Template<Ctx>> ToTemplate<Ctx> for T {
 }
 
 /// Main template trait.
-/// An implementation can be generated using both the `templ!` macro.
+/// An implementation can be generated using the [`templ!`](crate::templ) macro.
 pub trait Template<Ctx = ()> {
     /// Provides a rough estimate of the expanded length of the rendered template.
     /// Larger values result in higher memory usage but fewer reallocations.
     /// Smaller values result in the opposite. This value only affects render.
-    /// It does not take effect when calling `render_into`, `write_into`, the `fmt::Display`
+    /// It does not take effect when calling [`render_into`](Template::render_into),
+    /// [`write_into`](Template::write_into), and the [`fmt::Display`] (when implemented).
     // implementation, or the blanket `ToString::to_string` implementation.
     fn size_hint(&self) -> usize;
 
@@ -163,14 +164,15 @@ impl<Ctx, T: Template<Ctx> + ?Sized> Template<Ctx> for &'_ T {
     }
 }
 
-/// A wrapper for the `render_into` function that implements `Template`.
+/// A wrapper for the [`render_with_children_into`](Template::render_with_children_into)
+/// closure that implements [`Template`].
 #[derive(Debug)]
 pub struct FnTemplate<F, Ctx = ()>
 where
     F: Fn(&mut dyn fmt::Write, &Ctx, &dyn Template<Ctx>) -> Result<()>,
 {
     size_hint: usize,
-    render_into: F,
+    render_with_children_into: F,
     _phantom: PhantomData<Ctx>,
 }
 
@@ -178,24 +180,25 @@ impl<F, Ctx> FnTemplate<F, Ctx>
 where
     F: Fn(&mut dyn fmt::Write, &Ctx, &dyn Template<Ctx>) -> Result<()>,
 {
-    /// Creates a new `TemplateFn` a render_into function (see `Template::render_into`).
+    /// Creates a new [`FnTemplate`] from
+    /// a [`render_with_children_into`](Template::render_with_children_into) closure.
     /// This template will have the default size.
     #[inline]
-    pub fn new(render_into: F) -> Self {
+    pub fn new(render_with_children_into: F) -> Self {
         Self {
             size_hint: 80,
-            render_into,
+            render_with_children_into,
             _phantom: PhantomData,
         }
     }
 
-    /// Creates a new `TemplateFn` from a size hint (see `Template::SIZE_HINT`) and a render_into
-    /// function (see `Template::render_into`).
+    /// Creates a new [`FnTemplate`] from a size hint (see [`Template::size_hint`]) and
+    /// a [`render_with_children_into`](Template::render_with_children_into) closure
     #[inline]
-    pub fn new_sized(size_hint: usize, render_into: F) -> Self {
+    pub fn new_sized(size_hint: usize, render_with_children_into: F) -> Self {
         Self {
             size_hint,
-            render_into,
+            render_with_children_into,
             _phantom: PhantomData,
         }
     }
@@ -214,7 +217,7 @@ where
         ctx: &Ctx,
         children: &dyn Template<Ctx>,
     ) -> Result<()> {
-        (self.render_into)(writer, ctx, children)
+        (self.render_with_children_into)(writer, ctx, children)
     }
 }
 
@@ -227,12 +230,24 @@ where
     }
 }
 
-/// Return type for functions that return `templ! { ... }`.
+/// Return type for functions that return [`templ! { ... }`](crate::templ).
 /// This takes a lifetime (defaults to `'static`) and a context type (defaults to `()`).
 ///
 /// ```rust
 /// # use templr::{templ, templ_ret};
 /// fn hello(name: &str) -> templ_ret!['_, ()] {
+///     templ! {
+///         Hello, {name}!
+///     }
+/// }
+/// ```
+/// Instead of:
+/// ```rust
+/// # use std::fmt;
+/// # use templr::{templ, templ_ret, FnTemplate, Template, Result};
+/// fn hello(
+///     name: &str,
+/// ) -> FnTemplate<impl '_ + Fn(&mut dyn fmt::Write, &(), &dyn Template) -> Result<()>> {
 ///     templ! {
 ///         Hello, {name}!
 ///     }

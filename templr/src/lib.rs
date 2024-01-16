@@ -3,17 +3,21 @@ use std::{fmt, ops};
 pub use anyhow::{self, Error, Result};
 pub use templr_macros::templ;
 
-mod attrs;
+pub mod attrs;
 mod response;
 mod template;
 
-pub use {attrs::*, response::*, template::*};
+pub use {
+    attrs::{Attribute, Attributes, OptAttrValue},
+    response::{Response, TemplateExt},
+    template::{FnTemplate, Template, ToTemplate},
+};
 
 mod sealed {
     pub trait EscapableSeal {}
 }
 
-/// Mostly like `std::fmt::Display`, but with a `DONT_ESCAPE` flag.
+/// Mostly like [`Display`](std::fmt::Display), but with a `DONT_ESCAPE` flag.
 pub trait Escapable: sealed::EscapableSeal {
     /// `true` if you don't want to process the value through the html escaper.
     const DONT_ESCAPE: bool = false;

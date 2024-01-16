@@ -126,7 +126,7 @@ fn can_expr_break(expr: &syn::Expr) -> bool {
         syn::Expr::Cast(expr) => can_attrs_break(&expr.attrs) || can_expr_break(&expr.expr),
         syn::Expr::Closure(expr) => can_attrs_break(&expr.attrs),
         syn::Expr::Const(expr) => can_attrs_break(&expr.attrs) || can_block_break(&expr.block),
-        syn::Expr::Continue(expr) => can_attrs_break(&expr.attrs),
+        syn::Expr::Continue(expr) => can_attrs_break(&expr.attrs) || expr.label.is_none(),
         syn::Expr::Field(expr) => can_attrs_break(&expr.attrs) || can_expr_break(&expr.base),
         syn::Expr::ForLoop(expr) => can_attrs_break(&expr.attrs),
         syn::Expr::Group(expr) => can_attrs_break(&expr.attrs) || can_expr_break(&expr.expr),
@@ -941,7 +941,7 @@ impl<'a> Generator<'a> {
     }
 }
 
-/// The `templ` macro compiles down your template to rust.
+/// The [`templ!`] macro compiles down your template to rust.
 /// It uses HTML like syntax to write templates, except:
 ///
 /// 1. All tags must close with a slash (e.g. `<img src="..." />`).
@@ -970,8 +970,11 @@ impl<'a> Generator<'a> {
 ///
 /// # Interpolation
 /// You can interpolate values using curly braces `{...}`. These can be used inside text.
-/// Interpolating strings is done at compile time, so feel free to do that when raw text isn't
-/// sufficient: (e.g. `{"#1 winner"}`).
+/// Interpolating string literals is done at compile time, so feel free to do that when raw text
+/// isn't sufficient: (e.g. `{"#1 winner"}`).
+///
+/// You may also use the question mark operator (`?`) inside the templates as long as they're
+/// compatible with [`anyhow`].
 ///
 /// ```rust
 /// # use templr::{templ, Template};
@@ -1111,6 +1114,8 @@ impl<'a> Generator<'a> {
 /// let html = t.render(&"Zaknar").unwrap();
 /// assert_eq!(html, r"Hello, Zaknar!");
 /// ```
+///
+/// [`anyhow`]: https://docs.rs/anyhow/
 #[proc_macro]
 pub fn templ(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let body = syn::parse_macro_input!(tokens as TemplBody);
