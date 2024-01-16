@@ -1,6 +1,6 @@
 [package]
 name = "templr_macros"
-version = "0.1.3"
+version = "0.1.4"
 description = "Procedural macros for templr"
 homepage = "https://github.com/PizzasBear/templr"
 repository = "https://github.com/PizzasBear/templr"
