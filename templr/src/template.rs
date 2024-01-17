@@ -1,16 +1,19 @@
 use std::{fmt, io, marker::PhantomData};
 
+pub use templr_macros::Template;
+
 use crate::Result;
 
 /// Asserts that [`Template`] is object safe.
 struct _DynTemplate(dyn Template);
 
-/// A trait to convert a type to a [`Template`]. Used when instantiating templates.
+/// A trait to convert a type to a [`Template`]. Used when deriving [`Template`].
 ///
 /// Useful to implement on `struct`s.
 ///
 /// ```rust
 /// # use templr::{templ, ToTemplate, Template};
+/// #[derive(Template)]
 /// struct Greet<'a> {
 ///     name: &'a str,
 /// }
@@ -29,20 +32,51 @@ struct _DynTemplate(dyn Template);
 /// let html = t.render(&()).unwrap();
 /// assert_eq!(html, "Hello, baba!");
 /// ```
-pub trait ToTemplate<Ctx = ()> {
+pub trait ToTemplate<Ctx: ?Sized = ()> {
     /// Converts this type into the template.
+    /// This function should be as lightweight as possible.
     fn to_template(&self) -> impl Template<Ctx> + '_;
 }
 
-impl<Ctx, T: Template<Ctx>> ToTemplate<Ctx> for T {
+impl<Ctx: ?Sized, T: ToTemplate<Ctx> + ?Sized> ToTemplate<Ctx> for &'_ T {
     fn to_template(&self) -> impl Template<Ctx> + '_ {
-        self
+        T::to_template(self)
     }
 }
 
+// impl<Ctx: ?Sized, T: ToTemplate<Ctx>> Template<Ctx> for T {
+//     fn size_hint(&self) -> usize {
+//         self.to_template().size_hint()
+//     }
+//     fn render_with_children_into(
+//         &self,
+//         writer: &mut dyn fmt::Write,
+//         ctx: &Ctx,
+//         children: &dyn Template<Ctx>,
+//     ) -> Result<()> {
+//         self.to_template()
+//             .render_with_children_into(writer, ctx, children)
+//     }
+//     fn render_into(&self, writer: &mut dyn fmt::Write, ctx: &Ctx) -> Result<()> {
+//         self.to_template().render_into(writer, ctx)
+//     }
+//     fn write_into(&self, writer: &mut dyn io::Write, ctx: &Ctx) -> io::Result<()> {
+//         self.to_template().write_into(writer, ctx)
+//     }
+//     fn render(&self, ctx: &Ctx) -> Result<String> {
+//         self.to_template().render(ctx)
+//     }
+// }
+
+// impl<Ctx: ?Sized, T: Template<Ctx> + ?Sized> ToTemplate<Ctx> for T {
+//     fn to_template(&self) -> impl Template<Ctx> + '_ {
+//         self
+//     }
+// }
+
 /// Main template trait.
 /// An implementation can be generated using the [`templ!`](crate::templ) macro.
-pub trait Template<Ctx = ()> {
+pub trait Template<Ctx: ?Sized = ()> {
     /// Provides a rough estimate of the expanded length of the rendered template.
     /// Larger values result in higher memory usage but fewer reallocations.
     /// Smaller values result in the opposite. This value only affects render.
@@ -118,7 +152,7 @@ pub trait Template<Ctx = ()> {
     }
 }
 
-impl<Ctx> Template<Ctx> for () {
+impl<Ctx: ?Sized> Template<Ctx> for () {
     fn size_hint(&self) -> usize {
         0
     }
@@ -141,7 +175,7 @@ impl<Ctx> Template<Ctx> for () {
     }
 }
 
-impl<Ctx, T: Template<Ctx> + ?Sized> Template<Ctx> for &'_ T {
+impl<Ctx: ?Sized, T: Template<Ctx> + ?Sized> Template<Ctx> for &'_ T {
     fn size_hint(&self) -> usize {
         T::size_hint(self)
     }
@@ -167,7 +201,7 @@ impl<Ctx, T: Template<Ctx> + ?Sized> Template<Ctx> for &'_ T {
 /// A wrapper for the [`render_with_children_into`](Template::render_with_children_into)
 /// closure that implements [`Template`].
 #[derive(Debug)]
-pub struct FnTemplate<F, Ctx = ()>
+pub struct FnTemplate<F, Ctx: ?Sized = ()>
 where
     F: Fn(&mut dyn fmt::Write, &Ctx, &dyn Template<Ctx>) -> Result<()>,
 {
@@ -176,7 +210,7 @@ where
     _phantom: PhantomData<Ctx>,
 }
 
-impl<F, Ctx> FnTemplate<F, Ctx>
+impl<F, Ctx: ?Sized> FnTemplate<F, Ctx>
 where
     F: Fn(&mut dyn fmt::Write, &Ctx, &dyn Template<Ctx>) -> Result<()>,
 {
@@ -204,7 +238,7 @@ where
     }
 }
 
-impl<F, Ctx> Template<Ctx> for FnTemplate<F, Ctx>
+impl<F, Ctx: ?Sized> Template<Ctx> for FnTemplate<F, Ctx>
 where
     F: Fn(&mut dyn fmt::Write, &Ctx, &dyn Template<Ctx>) -> Result<()>,
 {

@@ -1,6 +1,6 @@
 [package]
 name = "templr"
-version = "0.1.6"
+version = "0.2.0"
 description = "A rust template library"
 documentation = "https://docs.rs/templr"
 keywords = ["markup", "template", "html", "rsx"]
@@ -16,7 +16,7 @@ edition = "2021"
 all-features = true
 
 [dependencies]
-templr_macros = { path = "../templr_macros", version = "0.1.4" }
+templr_macros = { path = "../templr_macros", version = "0.2.0" }
 
 anyhow = "1.0"
 askama_escape = "0.10"

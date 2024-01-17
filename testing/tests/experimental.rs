@@ -1,10 +1,24 @@
-use templr::{templ, templ_ret, Template};
+use templr::{templ, templ_ret, Template, ToTemplate};
 
-fn hello() -> templ_ret![Context] {
+#[derive(Template)]
+struct Named<'a> {
+    name: &'a str,
+}
+
+impl ToTemplate<Context> for Named<'_> {
+    fn to_template(&self) -> impl Template<Context> + '_ {
+        templ! {
+            Hello, {self.name}!
+        }
+    }
+}
+
+fn hello<'a>(named: &'a Named) -> templ_ret!['a, Context] {
     templ! {
-        #use children as children;
+        #use children;
 
         #children;
+        #named;
     }
 }
 
@@ -43,7 +57,7 @@ fn experiment() {
         #for _ in 0..2 {
             <namida />
         }
-        #hello() {
+        #hello(&Named { name: "jo" }) {
             <cultura />
         }
         #affoela();
