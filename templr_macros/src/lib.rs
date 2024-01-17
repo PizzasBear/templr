@@ -7,7 +7,7 @@ use askama_escape::Escaper;
 use parser::Element;
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::{quote, quote_spanned, ToTokens, TokenStreamExt};
-use syn::{punctuated::Punctuated, spanned::Spanned, Ident, Token};
+use syn::{parse_quote, punctuated::Punctuated, spanned::Spanned, Ident, Token};
 use templr_parser::{self as parser, Node, TemplBody};
 
 #[rustfmt::skip]
@@ -839,7 +839,7 @@ impl<'a> Generator<'a> {
             parser::call::End::Semi(semi) => {
                 tokens.append_all(quote_spanned! { pound.span =>
                     #crate_path::Template::render_into(
-                        &#crate_path::ToTemplate::to_template(&(#expr)),
+                        &(#expr),
                         #writer,
                         #context
                     )? #semi
@@ -852,7 +852,7 @@ impl<'a> Generator<'a> {
 
                 tokens.append_all(quote_spanned! { pound.span =>
                     #crate_path::Template::render_with_children_into(
-                        &#crate_path::ToTemplate::to_template(&(#expr)),
+                        &(#expr),
                         #writer,
                         #context,
                         &#inner_tokens,
@@ -941,7 +941,7 @@ impl<'a> Generator<'a> {
     }
 }
 
-/// The [`templ!`] macro compiles down your template to rust.
+/// The [`templ!`] macro compiles down your template to an `FnTemplate` closure.
 /// It uses HTML like syntax to write templates, except:
 ///
 /// 1. All tags must close with a slash (e.g. `<img src="..." />`).
@@ -1124,4 +1124,86 @@ pub fn templ(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     let mut generator = Generator::new();
     generator.write_templ(&mut tokens, Span::call_site(), &body);
     tokens.into()
+}
+
+/// This derives the `Template` trait using all `ToTemplate` implementations.
+/// This implementation runs `ToTemplate::to_template` for every method of the `Template` trait,
+/// so that method should be very lightweight (like using [`templ!`]).
+///
+/// ```rust
+/// # use templr::{templ, ToTemplate, Template};
+/// #[derive(Template)]
+/// struct Greet<'a> {
+///     name: &'a str,
+/// }
+///
+/// impl ToTemplate for Greet<'_> {
+///     fn to_template(&self) -> impl Template + '_ {
+///         templ! {
+///             Hello, {self.name}!
+///         }
+///     }
+/// }
+///
+/// let t = templ! {
+///     #(Greet { name: "baba" });
+/// };
+/// let html = t.render(&()).unwrap();
+/// assert_eq!(html, "Hello, baba!");
+/// ```
+#[proc_macro_derive(Template)]
+pub fn derive_template(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let input = syn::parse_macro_input!(tokens as syn::DeriveInput);
+
+    let name = input.ident;
+
+    let crate_path = crate_path(Span::call_site());
+
+    let ctx_ty = Ident::new("__TemplrCtx", Span::mixed_site());
+    let (_, ty_generics, _) = input.generics.split_for_impl();
+
+    let mut modified_generics = input.generics.clone();
+    modified_generics.params.push(parse_quote! {
+        #ctx_ty: ?Sized
+    });
+    modified_generics
+        .make_where_clause()
+        .predicates
+        .push(parse_quote! {
+            Self: #crate_path::ToTemplate<#ctx_ty>
+        });
+
+    let (impl_generics, _, where_clause) = modified_generics.split_for_impl();
+
+    From::from(quote! {
+        impl #impl_generics #crate_path::Template<#ctx_ty> for #name #ty_generics
+        #where_clause
+        {
+            fn size_hint(&self) -> usize {
+                #crate_path::ToTemplate::<#ctx_ty>::to_template(self)
+                    .size_hint()
+            }
+            fn render_with_children_into(
+                &self,
+                writer: &mut dyn ::std::fmt::Write,
+                ctx: &#ctx_ty,
+                children: &dyn #crate_path::Template<#ctx_ty>,
+            ) -> #crate_path::Result<()> {
+                #crate_path::ToTemplate::<#ctx_ty>::to_template(self)
+                    .render_with_children_into(writer, ctx, children)
+            }
+            fn render_into(&self, writer: &mut dyn ::std::fmt::Write, ctx: &#ctx_ty) -> #crate_path::Result<()> {
+                #crate_path::ToTemplate::<#ctx_ty>::to_template(self)
+                    .render_into(writer, ctx)
+            }
+            fn write_into(&self, writer: &mut dyn ::std::io::Write, ctx: &#ctx_ty) -> ::std::io::Result<()> {
+                #crate_path::ToTemplate::<#ctx_ty>::to_template(self)
+                    .write_into(writer, ctx)
+            }
+            fn render(&self, ctx: &#ctx_ty) -> #crate_path::Result<String> {
+                #crate_path::ToTemplate::<#ctx_ty>::to_template(self)
+                    .render(ctx)
+            }
+        }
+    })
 }

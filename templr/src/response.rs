@@ -2,19 +2,21 @@
 
 use std::fmt;
 
-use crate::{Error, FnTemplate, Result, Template, ToTemplate};
+use crate::{Error, FnTemplate, Result, Template};
 
 /// A response struct that implements the various frameworks' response traits
 pub struct Response(pub Result<String>);
 
 /// Extension trait for generating a response
-pub trait TemplateExt<Ctx = ()>: ToTemplate<Ctx> {
+pub trait TemplateExt<Ctx: ?Sized = ()>: Template<Ctx> {
     /// Generates a `Response`
-    fn response(&self, ctx: &Ctx) -> Response {
-        Response(self.to_template().render(ctx))
+    fn response(self, ctx: &Ctx) -> Response;
+}
+impl<Ctx: ?Sized, T: Template<Ctx>> TemplateExt<Ctx> for T {
+    fn response(self, ctx: &Ctx) -> TemplrResp {
+        Response(self.render(ctx))
     }
 }
-impl<Ctx, T: ToTemplate<Ctx>> TemplateExt<Ctx> for T {}
 
 use Response as TemplrResp;
 
