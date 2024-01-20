@@ -24,6 +24,12 @@ pub use {
     if_stmt::If, let_stmt::Let, match_stmt::Match, name::Name, raw_text::RawText,
 };
 
+mod kw {
+    syn::custom_keyword!(context);
+    syn::custom_keyword!(children);
+    syn::custom_keyword!(with);
+}
+
 /// Parses the body of a hash statement, consumes the entirery of its input
 fn parse_to_vec<T: Parse>(input: ParseStream) -> syn::Result<Vec<T>> {
     let mut body = vec![];
@@ -100,6 +106,73 @@ impl ToTokens for Block {
 }
 
 #[derive(Debug, Clone)]
+pub struct With {
+    pub pound: Token![#],
+    pub with: kw::with,
+    pub context: kw::context,
+    pub ty: Option<(Token![:], Box<syn::Type>)>,
+    pub eq: Token![=],
+    pub expr: Box<syn::Expr>,
+    pub brace: Brace,
+    pub nodes: Vec<Node>,
+}
+
+impl Parse for With {
+    fn parse(input: ParseStream) -> syn::Result<Self> {
+        let content;
+        Ok(Self {
+            pound: input.parse()?,
+            with: input.parse()?,
+            context: input.parse()?,
+            ty: {
+                let lookahead1 = input.lookahead1();
+                if lookahead1.peek(Token![:]) {
+                    Some((
+                        input.parse()?,
+                        Box::new(From::from(syn::TypeReference {
+                            and_token: input.parse()?,
+                            lifetime: None,
+                            mutability: None,
+                            elem: input.parse()?,
+                        })),
+                    ))
+                } else if lookahead1.peek(Token![=]) {
+                    None
+                } else {
+                    return Err(lookahead1.error());
+                }
+            },
+            eq: input.parse()?,
+            expr: Box::new(syn::Expr::parse_without_eager_brace(input)?),
+            brace: braced!(content in input),
+            nodes: parse_to_vec(&content)?,
+        })
+    }
+}
+
+impl ToTokens for With {
+    fn to_tokens(&self, tokens: &mut TokenStream) {
+        self.pound.to_tokens(tokens);
+        self.with.to_tokens(tokens);
+        self.context.to_tokens(tokens);
+        if let Some((colon, ty)) = &self.ty {
+            colon.to_tokens(tokens);
+            ty.to_tokens(tokens);
+        }
+        self.eq.to_tokens(tokens);
+        self.expr.to_tokens(tokens);
+        self.brace.surround(tokens, |tokens| {
+            tokens.append_all(&self.nodes);
+        });
+    }
+}
+
+// #use context as ctx: &u32;
+// #with context: &u32 = &0 {
+//     something
+// }
+
+#[derive(Debug, Clone)]
 pub enum Node {
     Entity(Entity),
     Doctype(Doctype),
@@ -114,6 +187,7 @@ pub enum Node {
     Scope(Scope<Self>),
     Let(Let),
     Call(Call),
+    With(With),
 }
 
 impl Parse for Node {
@@ -139,6 +213,8 @@ impl Parse for Node {
                 Ok(Self::Let(input.parse()?))
             } else if input.peek2(Brace) {
                 Ok(Self::Scope(input.parse()?))
+            } else if input.peek2(kw::with) {
+                Ok(Self::With(input.parse()?))
             } else {
                 Ok(Self::Call(input.parse()?))
             }
@@ -184,13 +260,9 @@ impl ToTokens for Node {
             Self::Scope(slf) => slf.to_tokens(tokens),
             Self::Let(slf) => slf.to_tokens(tokens),
             Self::Call(slf) => slf.to_tokens(tokens),
+            Self::With(slf) => slf.to_tokens(tokens),
         }
     }
-}
-
-mod kw {
-    syn::custom_keyword!(context);
-    syn::custom_keyword!(children);
 }
 
 #[derive(Debug, Clone)]

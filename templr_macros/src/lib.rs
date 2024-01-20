@@ -925,6 +925,26 @@ impl<'a> Generator<'a> {
             Node::If(stmt) => self.write_if(tokens, stmt, Self::write_node),
             Node::Match(stmt) => self.write_match(tokens, stmt, Self::write_node),
             Node::For(stmt) => self.write_for(tokens, stmt, Self::write_node),
+            Node::With(parser::With {
+                with,
+                ty,
+                eq,
+                expr,
+                brace,
+                nodes,
+                ..
+            }) => {
+                brace.surround(tokens, |tokens| {
+                    let context = context();
+                    let ty = ty.as_ref().map(|(col, ty)| quote! { #col #ty });
+                    tokens.append_all(quote_spanned! { with.span =>
+                        let #context #ty #eq #expr;
+                    });
+                    for node in nodes {
+                        self.write_node(tokens, node);
+                    }
+                });
+            }
             Node::Scope(parser::Scope { brace, body, .. }) => brace.surround(tokens, |tokens| {
                 for node in body {
                     self.write_node(tokens, node);
@@ -1095,6 +1115,10 @@ impl<'a> Generator<'a> {
 /// You can use it using `#use context as pattern: type`. When `as pattern` is omitted, `context`
 /// is the pattern. While when `: type` is omitted, the type is infered.
 ///
+/// To use templates with a different context type, you can use the `with` statement to change the
+/// context for a specific block. You may supply an optional type after the `context` keyword
+/// (e.g. `with context [: type] = value { ... }`).
+///
 /// ```rust
 /// # use templr::{templ, Template};
 /// let hello = templ! {
@@ -1111,8 +1135,15 @@ impl<'a> Generator<'a> {
 ///         {name}
 ///     }
 /// };
-/// let html = t.render(&"Zaknar").unwrap();
-/// assert_eq!(html, r"Hello, Zaknar!");
+/// assert_eq!(t.render("Zaknar").unwrap(), r"Hello, Zaknar!");
+///
+/// let name = "Mannier";
+/// let t2 = templ! {
+///     #with context = name {
+///         #t;
+///     }
+/// };
+/// assert_eq!(t2.render(&()).unwrap(), r"Hello, Mannier!");
 /// ```
 ///
 /// [`anyhow`]: https://docs.rs/anyhow/
