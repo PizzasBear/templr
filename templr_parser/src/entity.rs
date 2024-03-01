@@ -121,6 +121,16 @@ pub enum Entity {
     Hex(HexEntity),
 }
 
+impl Entity {
+    pub fn amp(&self) -> Token![&] {
+        match self {
+            Entity::Named(entity) => entity.amp,
+            Entity::Decimal(entity) => entity.amp,
+            Entity::Hex(entity) => entity.amp,
+        }
+    }
+}
+
 impl Parse for Entity {
     fn parse(input: ParseStream) -> syn::Result<Self> {
         if input.peek2(Ident::peek_any) {

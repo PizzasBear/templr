@@ -1,13 +1,15 @@
 use std::{
+    borrow::Cow,
     fmt::{self, Write},
     marker::PhantomData,
+    ops,
 };
 
 use askama_escape::Escaper;
 use parser::Element;
 use proc_macro2::{Delimiter, Span, TokenStream, TokenTree};
 use quote::{quote, quote_spanned, ToTokens, TokenStreamExt};
-use syn::{parse_quote, punctuated::Punctuated, spanned::Spanned, Ident, Token};
+use syn::{parse_quote, punctuated::Punctuated, Ident, Token};
 use templr_parser::{self as parser, Node, TemplBody};
 
 #[rustfmt::skip]
@@ -223,18 +225,18 @@ fn can_block_break(block: &syn::Block) -> bool {
     })
 }
 
-fn try_stringify_expr(expr: &syn::Expr, can_break: bool) -> Option<String> {
+fn try_stringify_expr(expr: &syn::Expr, can_break: bool) -> Option<(Span, String)> {
     if can_break && can_expr_break(expr) {
         return None;
     }
     match expr {
         syn::Expr::Lit(syn::ExprLit { attrs, lit }) if attrs.is_empty() => match lit {
-            syn::Lit::Str(s) => Some(s.value()),
-            syn::Lit::Byte(byte) => Some(byte.value().to_string()),
-            syn::Lit::Char(ch) => Some(ch.value().to_string()),
-            syn::Lit::Int(int) => Some(int.to_string()),
-            syn::Lit::Float(float) => Some(float.to_string()),
-            syn::Lit::Bool(bool) => Some(bool.value().to_string()),
+            syn::Lit::Str(s) => Some((s.span(), s.value())),
+            syn::Lit::Byte(byte) => Some((byte.span(), byte.value().to_string())),
+            syn::Lit::Char(ch) => Some((ch.span(), ch.value().to_string())),
+            syn::Lit::Int(int) => Some((int.span(), int.to_string())),
+            syn::Lit::Float(float) => Some((float.span(), float.to_string())),
+            syn::Lit::Bool(bool) => Some((bool.span(), bool.value().to_string())),
             _ => None,
         },
         syn::Expr::Paren(syn::ExprParen { expr, attrs, .. }) if attrs.is_empty() => {
@@ -250,7 +252,7 @@ fn try_stringify_expr(expr: &syn::Expr, can_break: bool) -> Option<String> {
     }
 }
 
-fn try_stringify_block(block: &syn::Block, can_break: bool) -> Option<String> {
+fn try_stringify_block(block: &syn::Block, can_break: bool) -> Option<(Span, String)> {
     if can_break && can_block_break(block) {
         return None;
     }
@@ -348,7 +350,7 @@ fn call_on_block(
                 },
             );
             inner_tokens.append_all(after);
-            surround_with_block(tokens, block.brace_token.span.span(), inner_tokens, false);
+            surround_with_block(tokens, block.brace_token.span.join(), inner_tokens, false);
         }
         _ => f(tokens, isolate_block(block)),
     }
@@ -388,8 +390,75 @@ fn surround_with_block(
     }
 }
 
+enum BufEntry {
+    Token(TokenTree),
+    LitStr(syn::LitStr),
+    Str(Cow<'static, str>),
+}
+
+impl BufEntry {
+    fn lit_str(span: Span, value: &str) -> Self {
+        Self::LitStr(syn::LitStr::new(value, span))
+    }
+
+    fn str(value: impl Into<Cow<'static, str>>) -> Self {
+        Self::Str(value.into())
+    }
+
+    fn stringify(&self, span: Span) -> TokenStream {
+        match self {
+            BufEntry::Str(s) => quote_spanned! { span => #s },
+            BufEntry::Token(token) => {
+                quote_spanned! { span => stringify!(#token) }
+            }
+            BufEntry::LitStr(lit) => lit.to_token_stream(),
+        }
+    }
+}
+
+struct Buf(Vec<BufEntry>);
+
+impl Buf {
+    fn push_str(&mut self, s: impl Into<Cow<'static, str>>) {
+        self.push(BufEntry::str(s));
+    }
+    fn push_lit_str(&mut self, span: Span, value: &str) {
+        self.push(BufEntry::lit_str(span, value));
+    }
+    fn extend_tokens(&mut self, tokens: impl ToTokens) {
+        for token in tokens.into_token_stream() {
+            self.push(BufEntry::Token(token));
+        }
+    }
+
+    fn name(&mut self, name: &parser::Name) {
+        match name {
+            parser::Name::Str(s) => self.push(BufEntry::LitStr(s.clone())),
+            parser::Name::Parts(parts) => {
+                for part in parts {
+                    self.extend_tokens(part);
+                }
+            }
+        }
+    }
+}
+
+impl ops::Deref for Buf {
+    type Target = Vec<BufEntry>;
+
+    fn deref(&self) -> &Self::Target {
+        &self.0
+    }
+}
+
+impl ops::DerefMut for Buf {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        &mut self.0
+    }
+}
+
 struct Generator<'a> {
-    buf: String,
+    buf: Buf,
     sizes: Vec<usize>,
     space: bool,
     _phantom: PhantomData<&'a TemplBody>,
@@ -398,30 +467,26 @@ struct Generator<'a> {
 impl<'a> Generator<'a> {
     fn new() -> Self {
         Self {
-            buf: String::new(),
+            buf: Buf(vec![]),
             sizes: vec![],
             space: false,
             _phantom: PhantomData,
         }
     }
 
-    fn write_escaped(&mut self, value: impl fmt::Display) {
-        pub struct EscapeWriter<'a>(&'a mut String);
+    fn write_escaped(&mut self, span: Span, value: impl fmt::Display) {
+        pub struct EscapeWriter<'a, T>(&'a mut T);
 
-        impl Write for EscapeWriter<'_> {
+        impl<T: Write> Write for EscapeWriter<'_, T> {
             #[inline]
-            fn write_str(&mut self, s: &str) -> std::fmt::Result {
+            fn write_str(&mut self, s: &str) -> fmt::Result {
                 askama_escape::Html.write_escaped(&mut *self.0, s)
             }
         }
 
-        // if space && !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
-        //     self.buf.push(' ');
-        // }
-        write!(EscapeWriter(&mut self.buf), "{value}").unwrap();
-        // if space && !self.buf.ends_with(|ch: char| ch.is_ascii_whitespace()) {
-        //     self.buf.push(' ');
-        // }
+        let mut s = String::new();
+        write!(EscapeWriter(&mut s), "{value}").unwrap();
+        self.buf.push_lit_str(span, &s);
     }
 
     fn top_size(&mut self) -> &mut usize {
@@ -435,10 +500,11 @@ impl<'a> Generator<'a> {
         if !buf.is_empty() {
             let writer = writer();
 
+            let entries = buf.drain(..).map(|e| e.stringify(span));
+
             tokens.append_all(quote_spanned! { span =>
-                ::core::fmt::Write::write_str(#writer, #buf)?;
+                ::core::fmt::Write::write_str(#writer, concat!(#(#entries),*))?;
             });
-            buf.clear();
         }
     }
 
@@ -446,7 +512,7 @@ impl<'a> Generator<'a> {
         match block {
             parser::Block::Valid(block) => self.write_block(tokens, block),
             parser::Block::Invalid { brace, body } => {
-                let block_span = brace.span.span();
+                let block_span = brace.span.join();
 
                 let crate_path = crate_path(block_span);
                 let writer = writer();
@@ -464,7 +530,7 @@ impl<'a> Generator<'a> {
 
     fn write_block(&mut self, tokens: &mut TokenStream, block: &syn::Block) {
         match try_stringify_block(block, true) {
-            Some(s) => {
+            Some((span, s)) => {
                 tokens.append_all(quote_spanned! { block.brace_token.span.open() => _ = });
                 match can_block_break(block) {
                     true => tokens.append_all(isolate_block(block)),
@@ -478,12 +544,12 @@ impl<'a> Generator<'a> {
                     }
                 }
                 tokens.append_all(quote_spanned! { block.brace_token.span.close() => ; });
-                self.write_escaped(&s);
+                self.write_escaped(span, &s);
             }
             None => {
                 self.flush_buffer(tokens, block.brace_token.span.open());
                 call_on_block(tokens, block, |tokens, expr| {
-                    let block_span = block.brace_token.span.span();
+                    let block_span = block.brace_token.span.join();
                     let crate_path = crate_path(block_span);
                     let writer = writer();
 
@@ -587,12 +653,12 @@ impl<'a> Generator<'a> {
                     .map(|(if_token, cond)| quote! { #if_token #cond });
 
                 let mut tokens = quote! { #pat #guard #fat_arrow };
-                surround_with_block(&mut tokens, brace.span.span(), inner_tokens, true);
+                surround_with_block(&mut tokens, brace.span.join(), inner_tokens, true);
                 tokens
             },
         );
 
-        tokens.append_all(quote_spanned! { brace.span.span() =>
+        tokens.append_all(quote_spanned! { brace.span.join() =>
             #match_token #expr { #(#arms)* }
         });
 
@@ -626,7 +692,6 @@ impl<'a> Generator<'a> {
             self.space = init_space;
             for item in body {
                 write_item(self, tokens, item);
-                // self.write_node(tokens, item);
             }
             self.flush_buffer(tokens, span);
             self.space = true;
@@ -636,7 +701,7 @@ impl<'a> Generator<'a> {
         write_nodes(&mut then_tokens, brace.span.open(), body);
 
         tokens.append_all(quote! { #if_token #cond });
-        surround_with_block(tokens, brace.span.span(), then_tokens, true);
+        surround_with_block(tokens, brace.span.join(), then_tokens, true);
         for branch in else_if_branches {
             let parser::if_stmt::ElseIfBranch {
                 else_token,
@@ -649,7 +714,7 @@ impl<'a> Generator<'a> {
             write_nodes(&mut then_tokens, brace.span.open(), body);
 
             tokens.append_all(quote! { #else_token #if_token #cond });
-            surround_with_block(tokens, brace.span.span(), then_tokens, true);
+            surround_with_block(tokens, brace.span.join(), then_tokens, true);
         }
         if let Some(parser::if_stmt::ElseBranch {
             else_token,
@@ -661,7 +726,7 @@ impl<'a> Generator<'a> {
             write_nodes(&mut then_tokens, brace.span.open(), body);
 
             tokens.append_all(quote! { #else_token });
-            surround_with_block(tokens, brace.span.span(), then_tokens, true);
+            surround_with_block(tokens, brace.span.join(), then_tokens, true);
         }
 
         let avg_size = self.sizes.pop().unwrap() / num_branches;
@@ -693,34 +758,46 @@ impl<'a> Generator<'a> {
         self.flush_buffer(&mut inner_tokens, brace.span.close());
 
         tokens.append_all(quote! { #for_token #pat #in_token #expr });
-        surround_with_block(tokens, brace.span.span(), inner_tokens, true);
+        surround_with_block(tokens, brace.span.join(), inner_tokens, true);
     }
 
     fn write_attr(&mut self, tokens: &mut TokenStream, attr: &'a parser::Attr) {
         match attr {
             parser::Attr::Html(parser::attrs::HtmlAttr { name, value }) => match value {
                 parser::attrs::HtmlAttrValue::None => {
-                    write!(self.buf, " {name}").unwrap();
+                    self.buf.push_str(" ");
+                    self.buf.name(name);
                 }
-                parser::attrs::HtmlAttrValue::Ident(_, value) => {
-                    write!(self.buf, " {name}={value}").unwrap();
+                parser::attrs::HtmlAttrValue::Ident(eq, value) => {
+                    self.buf.push_str(" ");
+                    self.buf.name(name);
+                    self.buf.extend_tokens(quote! { #eq #value });
                 }
-                parser::attrs::HtmlAttrValue::Str(_, value) => {
-                    write!(self.buf, " {name}=\"",).unwrap();
-                    self.write_escaped(value.value());
-                    write!(self.buf, "\"").unwrap();
+                parser::attrs::HtmlAttrValue::Str(eq, value) => {
+                    self.buf.push_str(" ");
+                    self.buf.name(name);
+                    self.buf.extend_tokens(eq);
+                    self.buf.push_str("\"");
+                    self.write_escaped(value.span(), value.value());
+                    self.buf.push_str("\"");
                 }
-                parser::attrs::HtmlAttrValue::Int(_, value) => {
-                    write!(self.buf, " {name}=\"",).unwrap();
-                    self.write_escaped(value);
-                    write!(self.buf, "\"").unwrap();
+                parser::attrs::HtmlAttrValue::Int(eq, value) => {
+                    self.buf.push_str(" ");
+                    self.buf.name(name);
+                    self.buf.extend_tokens(eq);
+                    self.buf.push_str("\"");
+                    self.write_escaped(value.span(), value);
+                    self.buf.push_str("\"");
                 }
-                parser::attrs::HtmlAttrValue::Float(_, value) => {
-                    write!(self.buf, " {name}=\"",).unwrap();
-                    self.write_escaped(value);
-                    write!(self.buf, "\"").unwrap();
+                parser::attrs::HtmlAttrValue::Float(eq, value) => {
+                    self.buf.push_str(" ");
+                    self.buf.name(name);
+                    self.buf.extend_tokens(eq);
+                    self.buf.push_str("\"");
+                    self.write_escaped(value.span(), value);
+                    self.buf.push_str("\"");
                 }
-                parser::attrs::HtmlAttrValue::Block(toggle, _, cond) => match toggle {
+                parser::attrs::HtmlAttrValue::Block(toggle, eq, cond) => match toggle {
                     Some(toggle) => {
                         self.flush_buffer(tokens, toggle.span);
 
@@ -730,7 +807,8 @@ impl<'a> Generator<'a> {
 
                             let mut inner_tokens = TokenStream::new();
 
-                            write!(self.buf, " {name}").unwrap();
+                            self.buf.push_str(" ");
+                            self.buf.name(name);
                             self.flush_buffer(&mut inner_tokens, cond.brace_span().open());
 
                             *self.top_size() += EST_EXPR_SIZE;
@@ -744,9 +822,12 @@ impl<'a> Generator<'a> {
                         });
                     }
                     None => {
-                        write!(self.buf, " {name}=\"").unwrap();
+                        self.buf.push_str(" ");
+                        self.buf.name(name);
+                        self.buf.extend_tokens(eq);
+                        self.buf.push_str("\"");
                         self.write_maybe_block(tokens, cond);
-                        write!(self.buf, "\"").unwrap();
+                        self.buf.push_str("\"");
                     }
                 },
             },
@@ -768,7 +849,7 @@ impl<'a> Generator<'a> {
             parser::Attr::Spread(block) => call_on_maybe_block(tokens, block, |tokens, expr| {
                 self.flush_buffer(tokens, block.brace_span().open());
 
-                let block_span = block.brace_span().span();
+                let block_span = block.brace_span().join();
                 let crate_path = crate_path(block_span);
                 let writer = writer();
 
@@ -794,15 +875,15 @@ impl<'a> Generator<'a> {
             gt,
         } = &element.open;
 
-        let name = name.to_string();
-        write!(self.buf, "<{name}").unwrap();
+        self.buf.extend_tokens(lt);
+        self.buf.name(name);
 
         let mut inner_tokens = TokenStream::new();
         for attr in attrs {
             self.write_attr(&mut inner_tokens, attr);
         }
         surround_with_block(tokens, lt.span, inner_tokens, false);
-        write!(self.buf, ">").unwrap();
+        self.buf.extend_tokens(gt);
 
         let mut inner_tokens = TokenStream::new();
         self.space = false;
@@ -811,14 +892,23 @@ impl<'a> Generator<'a> {
         }
         surround_with_block(tokens, gt.span, inner_tokens, false);
 
-        if slash.is_some() {
-            if !SELF_CLOSING.contains(&&*name) {
-                write!(self.buf, "</{name}>").unwrap();
+        if let Some(slash) = slash {
+            if !SELF_CLOSING.contains(&&*name.to_string()) {
+                self.buf.extend_tokens(quote! { #lt #slash });
+                self.buf.name(name);
+                self.buf.extend_tokens(gt);
             }
-            return;
+        } else if let Some(parser::element::CloseTag {
+            lt,
+            slash,
+            name,
+            gt,
+        }) = &element.close
+        {
+            self.buf.extend_tokens(quote! { #lt #slash });
+            self.buf.name(name);
+            self.buf.extend_tokens(gt);
         }
-
-        write!(self.buf, "</{name}>").unwrap();
     }
 
     fn write_call(&mut self, tokens: &mut TokenStream, call: &'a parser::Call) {
@@ -848,7 +938,7 @@ impl<'a> Generator<'a> {
             parser::call::End::Children(brace, body) => {
                 let mut inner_tokens = TokenStream::new();
 
-                self.write_templ(&mut inner_tokens, brace.span.span(), body);
+                self.write_templ(&mut inner_tokens, brace.span.join(), body);
 
                 tokens.append_all(quote_spanned! { pound.span =>
                     #crate_path::Template::render_with_children_into(
@@ -864,60 +954,76 @@ impl<'a> Generator<'a> {
 
     fn write_node(&mut self, tokens: &mut TokenStream, node: &'a Node) {
         match node {
-            Node::Entity(entity) => write!(self.buf, "{entity}").unwrap(),
-            Node::Doctype(doctype) => write!(self.buf, "{doctype}").unwrap(),
+            Node::Entity(entity) => self.buf.extend_tokens(entity),
+            Node::Doctype(parser::Doctype {
+                lt,
+                bang,
+                doctype,
+                name,
+                gt,
+            }) => {
+                self.buf.extend_tokens(quote! { #lt #bang #doctype });
+                self.buf.push_str(" ");
+                self.buf.name(name);
+                self.buf.extend_tokens(gt);
+            }
             Node::Element(element) => self.write_element(tokens, element),
             Node::RawText(text) => {
                 for token in text.tokens.clone() {
                     match token {
-                        TokenTree::Punct(p)
-                            if matches!(p.as_char(), '.' | ',' | ':' | ';' | '!' | '?' | '%') =>
+                        TokenTree::Punct(punct)
+                            if matches!(
+                                punct.as_char(),
+                                '.' | ',' | ':' | ';' | '!' | '?' | '%'
+                            ) =>
                         {
                             self.space = true;
-                            self.buf.push(p.as_char());
+                            self.buf.extend_tokens(punct)
                         }
-                        TokenTree::Punct(p) if matches!(p.as_char(), '$' | '#' | '¿' | '¡') => {
+                        TokenTree::Punct(punct)
+                            if matches!(punct.as_char(), '$' | '#' | '¿' | '¡') =>
+                        {
                             if self.space {
                                 self.space = false;
-                                self.buf.push(' ');
+                                self.buf.push_str(" ");
                             }
-                            self.buf.push(p.as_char());
+                            self.buf.extend_tokens(punct)
                         }
                         _ => {
                             if self.space {
-                                self.buf.push(' ');
+                                self.buf.push_str(" ");
                             }
                             self.space = true;
-                            self.write_escaped(token);
+                            self.write_escaped(token.span(), token);
                         }
                     }
                 }
             }
-            Node::Paren(_, nodes) => {
+            Node::Paren(paren, nodes) => {
                 if self.space {
-                    self.buf.push(' ');
+                    self.buf.push_str(" ");
                 }
-                self.buf.push('(');
+                self.buf.push_lit_str(paren.span.open(), "(");
                 self.space = false;
                 for node in nodes {
                     self.write_node(tokens, node);
                 }
-                self.buf.push(')');
+                self.buf.push_lit_str(paren.span.close(), ")");
             }
-            Node::Bracket(_, nodes) => {
+            Node::Bracket(bracket, nodes) => {
                 if self.space {
-                    self.buf.push(' ');
+                    self.buf.push_str(" ");
                 }
-                self.buf.push('(');
+                self.buf.push_lit_str(bracket.span.open(), "[");
                 self.space = false;
                 for node in nodes {
                     self.write_node(tokens, node);
                 }
-                self.buf.push(')');
+                self.buf.push_lit_str(bracket.span.close(), "]");
             }
             Node::Expr(block) => {
                 if self.space {
-                    self.buf.push(' ');
+                    self.buf.push_str(" ");
                 }
                 self.space = true;
                 self.write_maybe_block(tokens, block);
