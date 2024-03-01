@@ -29,7 +29,7 @@ warp = { version = "0.3", default-features = false, optional = true }
 tide = { version = "0.16", default-features = false, optional = true }
 gotham = { version = "0.7", default-features = false, optional = true }
 rocket = { version = "0.5", default-features = false, optional = true }
-salvo_core = { version = "0.65", default-features = false, optional = true }
+salvo_core = { version = "0.66", default-features = false, optional = true }
 
 [dev-dependencies]
 itertools = "0.12"
