@@ -12,6 +12,11 @@ use quote::{quote, quote_spanned, ToTokens, TokenStreamExt};
 use syn::{parse_quote, punctuated::Punctuated, Ident, Token};
 use templr_parser::{self as parser, Node, TemplBody};
 
+const SELF_CLOSING: &[&str] = &[
+    "arena", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param", "source",
+    "track", "wbr", // html
+];
+
 #[rustfmt::skip]
 fn can_attrs_break(attrs: &[syn::Attribute]) -> bool {
     !attrs.iter().all(|attr| {
@@ -862,10 +867,10 @@ impl<'a> Generator<'a> {
     }
 
     fn write_element(&mut self, tokens: &mut TokenStream, element: &'a Element) {
-        const SELF_CLOSING: &[&str] = &[
-            "arena", "base", "br", "col", "embed", "hr", "img", "input", "link", "meta", "param",
-            "source", "track", "wbr", // html
-        ];
+        if self.space {
+            self.buf.push_str(" ");
+        }
+        self.space = false;
 
         let parser::element::OpenTag {
             lt,
@@ -886,7 +891,6 @@ impl<'a> Generator<'a> {
         self.buf.extend_tokens(gt);
 
         let mut inner_tokens = TokenStream::new();
-        self.space = false;
         for node in &element.nodes {
             self.write_node(&mut inner_tokens, node);
         }
@@ -909,6 +913,7 @@ impl<'a> Generator<'a> {
             self.buf.name(name);
             self.buf.extend_tokens(gt);
         }
+        self.space = true;
     }
 
     fn write_call(&mut self, tokens: &mut TokenStream, call: &'a parser::Call) {
@@ -1184,7 +1189,7 @@ impl<'a> Generator<'a> {
 /// let html = t.render(&()).unwrap();
 /// assert_eq!(
 ///     html,
-///     r#"<div class="err">oops</div><ul><li>No 1</li><li>No 2</li><li>No 3</li></ul> 2"#,
+///     r#"<div class="err">oops</div> <ul> <li>No 1</li> <li>No 2</li> <li>No 3</li></ul> 2"#
 /// );
 /// ```
 ///
