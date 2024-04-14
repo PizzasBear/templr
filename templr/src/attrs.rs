@@ -192,6 +192,59 @@ impl<I: Attribute, T: IntoIterator<Item = I>> Attributes for ops::RangeTo<T> {
     }
 }
 
+#[derive(Debug, Clone, Default)]
+pub struct PrerenderedAttrs {
+    raw: String,
+}
+
+impl PrerenderedAttrs {
+    #[inline]
+    pub fn new() -> Self {
+        Self { raw: String::new() }
+    }
+    #[inline]
+    pub fn from_raw_unchecked(raw: String) -> Self {
+        Self { raw }
+    }
+    #[inline]
+    pub fn add(&mut self, attr: &impl Attribute) -> Result<()> {
+        attr.render_into(&mut self.raw)
+    }
+    #[inline]
+    pub fn append(&mut self, attrs: impl Attributes) -> Result<()> {
+        attrs.render_into(&mut self.raw)
+    }
+    #[inline]
+    pub fn append_raw_unchecked(&mut self, raw: impl fmt::Display) -> fmt::Result {
+        use fmt::Write;
+        write!(&mut self.raw, "{raw}")
+    }
+}
+
+impl<A: Attributes> Extend<A> for PrerenderedAttrs {
+    fn extend<T: IntoIterator<Item = A>>(&mut self, iter: T) {
+        for attr in iter {
+            attr.render_into(&mut self.raw).unwrap();
+        }
+    }
+}
+
+impl sealed::AttributesSeal for &'_ PrerenderedAttrs {}
+impl Attributes for &'_ PrerenderedAttrs {
+    #[inline]
+    fn render_into(self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
+        writer.write_str(&self.raw)?;
+        Ok(())
+    }
+}
+impl sealed::AttributesSeal for PrerenderedAttrs {}
+impl Attributes for PrerenderedAttrs {
+    #[inline]
+    fn render_into(self, writer: &mut (impl fmt::Write + ?Sized)) -> Result<()> {
+        (&self).render_into(writer)
+    }
+}
+
 /// The trait for optional attribute values. This is used when `attr?={value}` is evaluated.
 pub trait OptAttrValue: sealed::OptAttrValueSeal {
     /// When [`None`] the attribute shouldn't be rendered.

@@ -1,7 +1,7 @@
 use std::{fmt, ops};
 
 pub use anyhow::{self, Error, Result};
-pub use templr_macros::templ;
+pub use templr_macros::{attrs, templ};
 
 pub mod attrs;
 mod response;

@@ -1268,6 +1268,67 @@ pub fn templ(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
     tokens.into()
 }
 
+struct AttrsBody(Vec<parser::Attr>);
+
+impl syn::parse::Parse for AttrsBody {
+    fn parse(input: syn::parse::ParseStream) -> syn::Result<Self> {
+        let mut attrs = vec![];
+        while !input.is_empty() {
+            attrs.push(input.parse()?);
+        }
+        Ok(Self(attrs))
+    }
+}
+
+/// This renders the attributes into a `PrerenderedAttrs` struct. This can later be used for
+/// attributes instantiation.
+///
+/// ```rust
+/// # use templr::{templ, Template, attrs};
+///
+/// let attrs = &attrs! { style="color: red;" class="hello world" }.unwrap();
+///
+/// let t = templ! {
+///     <ul>
+///         <li {attrs}>Item 1</li>
+///         <li {attrs}>Item 2</li>
+///         <li {attrs}>Item 3</li>
+///         <li {attrs}>Item 4</li>
+///     </ul>
+/// };
+/// assert_eq!(
+///     t.render(&()).unwrap(),
+///     r#"<ul><li style="color: red;" class="hello world">Item 1</li> <li style="color: red;" class="hello world">Item 2</li> <li style="color: red;" class="hello world">Item 3</li> <li style="color: red;" class="hello world">Item 4</li></ul>"#,
+/// );
+/// ```
+#[proc_macro]
+pub fn attrs(tokens: proc_macro::TokenStream) -> proc_macro::TokenStream {
+    let body = syn::parse_macro_input!(tokens as AttrsBody);
+
+    let mut inner_tokens = TokenStream::new();
+    let mut generator = Generator::new();
+    generator.sizes.push(0);
+    for attr in &body.0 {
+        generator.write_attr(&mut inner_tokens, attr);
+    }
+    generator.flush_buffer(&mut inner_tokens, Span::call_site());
+
+    let writer = writer();
+    let crate_path = crate_path(Span::call_site());
+    From::from(quote! {
+        (move || -> #crate_path::Result<_> {
+            let mut #writer = ::std::string::String::new();
+            {
+                let #writer = &mut #writer;
+                #inner_tokens
+            }
+            #crate_path::Result::Ok(
+                #crate_path::attrs::PrerenderedAttrs::from_raw_unchecked(#writer),
+            )
+        })()
+    })
+}
+
 /// This derives the `Template` trait using all `ToTemplate` implementations.
 /// This implementation runs `ToTemplate::to_template` for every method of the `Template` trait,
 /// so that method should be very lightweight (like using [`templ!`]).
