@@ -1,6 +1,6 @@
 [package]
 name = "templr"
-version = "0.2.2"
+version = "0.2.3"
 description = "A rust template library"
 documentation = "https://docs.rs/templr"
 keywords = ["markup", "template", "html", "rsx"]
@@ -16,7 +16,7 @@ edition = "2021"
 all-features = true
 
 [dependencies]
-templr_macros = { path = "../templr_macros", version = "0.2.1" }
+templr_macros = { path = "../templr_macros", version = "0.2.2" }
 
 anyhow = "1.0"
 askama_escape = "0.10"
@@ -29,7 +29,7 @@ warp = { version = "0.3", default-features = false, optional = true }
 tide = { version = "0.16", default-features = false, optional = true }
 gotham = { version = "0.7", default-features = false, optional = true }
 rocket = { version = "0.5", default-features = false, optional = true }
-salvo_core = { version = "0.66", default-features = false, optional = true }
+salvo_core = { version = "0.67", default-features = false, optional = true }
 
 [dev-dependencies]
 itertools = "0.12"
