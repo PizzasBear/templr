@@ -324,7 +324,7 @@ mod resp_salvo {
             match self.0 {
                 Ok(body) => {
                     res.status_code(StatusCode::OK);
-                    res.body(body.into());
+                    res.body(body);
                     res.headers_mut().insert(
                         header::CONTENT_TYPE,
                         HeaderValue::from_static(HTML_MIME_TYPE),

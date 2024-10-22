@@ -1,6 +1,6 @@
 [package]
 name = "templr"
-version = "0.2.3"
+version = "0.2.4"
 description = "A rust template library"
 documentation = "https://docs.rs/templr"
 keywords = ["markup", "template", "html", "rsx"]
@@ -29,10 +29,10 @@ warp = { version = "0.3", default-features = false, optional = true }
 tide = { version = "0.16", default-features = false, optional = true }
 gotham = { version = "0.7", default-features = false, optional = true }
 rocket = { version = "0.5", default-features = false, optional = true }
-salvo_core = { version = "0.67", default-features = false, optional = true }
+salvo_core = { version = "0.73", default-features = false, optional = true }
 
 [dev-dependencies]
-itertools = "0.12"
+itertools = "0.13"
 
 [features]
 default = []

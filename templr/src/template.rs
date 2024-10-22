@@ -127,13 +127,6 @@ pub trait Template<Ctx: ?Sized = ()> {
             }
         }
 
-        struct DisplayError;
-        impl fmt::Display for DisplayError {
-            fn fmt(&self, _f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                Err(fmt::Error)
-            }
-        }
-
         let mut output = Adapter {
             inner: writer,
             error: Ok(()),
