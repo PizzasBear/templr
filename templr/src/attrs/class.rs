@@ -181,7 +181,7 @@ impl ClassAttr {
     }
 
     /// Iterates over all present classes in no particular order.
-    pub fn iter(&self) -> Iter {
+    pub fn iter(&self) -> Iter<'_> {
         Iter(self.classes.iter())
     }
 }

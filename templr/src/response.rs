@@ -156,7 +156,6 @@ mod resp_hyper {
 mod resp_warp {
     use warp::{
         http::{self, header, StatusCode},
-        hyper::Body,
         reply::{Reply, Response},
     };
 
@@ -172,7 +171,7 @@ mod resp_warp {
                     .body(body.into()),
                 Err(_) => http::Response::builder()
                     .status(StatusCode::INTERNAL_SERVER_ERROR)
-                    .body(Body::empty()),
+                    .body("".into()),
             }
             .unwrap()
         }

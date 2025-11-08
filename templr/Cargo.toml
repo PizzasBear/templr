@@ -19,20 +19,20 @@ all-features = true
 templr_macros = { path = "../templr_macros", version = "0.2.2" }
 
 anyhow = "1.0"
-askama_escape = "0.10"
+askama_escape = "0.13"
 
-axum-core = { version = "0.4", optional = true }
+axum-core = { version = "0.5", optional = true }
 http = { version = "1.0", optional = true }
 actix-web = { version = "4", default-features = false, optional = true }
 hyper = { version = "1.0", default-features = false, optional = true }
-warp = { version = "0.3", default-features = false, optional = true }
+warp = { version = "0.4", default-features = false, optional = true }
 tide = { version = "0.16", default-features = false, optional = true }
 gotham = { version = "0.7", default-features = false, optional = true }
 rocket = { version = "0.5", default-features = false, optional = true }
-salvo_core = { version = "0.73", default-features = false, optional = true }
+salvo_core = { version = "0.84", default-features = false, optional = true }
 
 [dev-dependencies]
-itertools = "0.13"
+itertools = "0.14"
 
 [features]
 default = []
